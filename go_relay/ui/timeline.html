@@ -1,0 +1,1652 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lochness - Cyberdeck Timeline</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --grid-color: #1a1a1a;
+            --accent-cyan: #00f3ff;
+            --accent-magenta: #ff00ff;
+            --accent-green: #39ff14;
+            --text-main: #e0e0e0;
+            --panel-bg: rgba(10, 10, 10, 0.7);
+            --modal-bg: rgba(5, 5, 5, 0.75);
+            --border-glow: 0 0 15px rgba(0, 243, 255, 0.4);
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        body::after {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 100;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        #ui-container {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            z-index: 5;
+        }
+
+        header {
+            padding: 10px 20px;
+            background: var(--panel-bg);
+            border-bottom: 2px solid var(--accent-cyan);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--border-glow);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            color: var(--accent-cyan);
+            text-shadow: 0 0 10px var(--accent-cyan);
+        }
+
+        #meta-info {
+            font-size: 0.9rem;
+            color: var(--accent-magenta);
+            font-weight: bold;
+        }
+
+        main {
+            flex: 1;
+            position: relative;
+            cursor: crosshair;
+        }
+
+        #timeline-canvas {
+            display: block;
+        }
+
+        /* Telescope Modal */
+        #telescope-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+
+        #telescope-window {
+            width: 700px;
+            height: auto;
+            max-height: 80vh;
+            background: rgba(10, 10, 10, 0.95);
+            border: 2px solid var(--accent-cyan);
+            box-shadow: 0 0 50px rgba(0, 243, 255, 0.3);
+            padding: 30px;
+            position: relative;
+            overflow-y: auto;
+            backdrop-filter: blur(20px);
+            pointer-events: auto;
+        }
+
+
+        #telescope-window::before {
+            content: 'TELESCOPE VIEW';
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: var(--bg-color);
+            padding: 0 10px;
+            color: var(--accent-cyan);
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        .close-btn {
+            color: var(--accent-cyan);
+            cursor: pointer;
+            font-size: 1.5rem;
+            transition: all 0.2s;
+            z-index: 110;
+            line-height: 1;
+        }
+
+        .close-btn:hover {
+            color: #fff;
+            transform: scale(1.2);
+        }
+
+        #telescope-panel .close-btn:hover,
+        #telescope-overlay .close-btn:hover {
+            text-shadow: 0 0 10px var(--accent-cyan);
+        }
+
+        #carousel-panel .close-btn:hover {
+            text-shadow: 0 0 10px var(--accent-magenta);
+        }
+
+        .detail-row {
+            margin-bottom: 15px;
+            border-bottom: 1px solid #222;
+            padding-bottom: 10px;
+        }
+
+        .detail-label {
+            color: var(--accent-magenta);
+            font-weight: bold;
+            display: block;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .detail-value {
+            font-size: 1rem;
+            color: var(--accent-green);
+            word-break: break-all;
+        }
+
+        .kv-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-top: 5px;
+        }
+
+        .kv-key {
+            color: var(--accent-magenta);
+            width: 40%;
+            padding: 4px 10px 4px 0;
+            text-align: right;
+            border-right: 1px solid rgba(255, 0, 255, 0.3);
+            text-transform: uppercase;
+        }
+
+        .kv-val {
+            color: var(--accent-green);
+            padding: 4px 0 4px 15px;
+            word-break: break-all;
+        }
+
+        /* Sidebar Menu */
+        #sidebar-toggle {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: rgba(10, 10, 10, 0.8);
+            border: 2px solid var(--accent-green);
+            color: var(--accent-green);
+            padding: 0;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(57, 255, 20, 0.3);
+            transition: all 0.3s;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        #sidebar-toggle:hover {
+            background: var(--accent-green);
+            color: #000;
+            box-shadow: 0 0 20px var(--accent-green);
+        }
+
+        #view-toggle {
+            position: absolute;
+            top: 20px;
+            left: 74px;
+            z-index: 1000;
+            background: rgba(10, 10, 10, 0.8);
+            border: 2px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 0;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+            transition: all 0.3s;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        #view-toggle:hover {
+            background: var(--accent-cyan);
+            color: #000;
+            box-shadow: 0 0 20px var(--accent-cyan);
+        }
+
+        #multiselect-toggle {
+            position: absolute;
+            top: 20px;
+            left: 128px;
+            z-index: 1000;
+            background: rgba(10, 10, 10, 0.8);
+            border: 2px solid var(--accent-magenta);
+            color: var(--accent-magenta);
+            padding: 0;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(255, 0, 255, 0.3);
+            transition: all 0.3s;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        #multiselect-toggle.active {
+            background: var(--accent-magenta);
+            color: #000;
+            box-shadow: 0 0 20px var(--accent-magenta);
+        }
+
+        #areaselect-toggle {
+            position: absolute;
+            top: 20px;
+            left: 182px;
+            z-index: 1000;
+            background: rgba(10, 10, 10, 0.8);
+            border: 2px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 0;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.3);
+            transition: all 0.3s;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        #areaselect-toggle.active {
+            background: var(--accent-cyan);
+            color: #000;
+            box-shadow: 0 0 30px var(--accent-cyan);
+        }
+
+        /* Lane Header Overlay */
+        #lane-labels-container {
+            position: absolute;
+            top: 70px;
+            /* Adjust based on header height */
+            left: 0;
+            width: 150px;
+            height: calc(100% - 70px);
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        .lane-header {
+            position: absolute;
+            left: 0;
+            width: 140px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            pointer-events: auto;
+            box-shadow: 5px 0 10px rgba(0, 0, 0, 0.3);
+            padding: 0 8px;
+            transition: all 0.2s;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .lane-header:hover {
+            width: 160px;
+        }
+
+        .lane-name {
+            font-size: 0.65rem;
+            font-weight: bold;
+            color: #000;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+            text-transform: uppercase;
+        }
+
+        .lane-ctrl-btn {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(0, 0, 0, 0.3);
+            color: #000;
+            font-size: 0.55rem;
+            font-weight: bold;
+            padding: 1px 4px;
+            cursor: pointer;
+            margin-left: 4px;
+            transition: all 0.2s;
+            border-radius: 2px;
+        }
+
+        .lane-ctrl-btn:hover {
+            background: #fff;
+            color: #000;
+        }
+
+        #provider-sidebar {
+            position: absolute;
+            top: 0;
+            left: -350px;
+            width: 300px;
+            height: 100%;
+            background: rgba(5, 5, 5, 0.95);
+            border-right: 2px solid var(--accent-green);
+            z-index: 1100;
+            padding: 20px;
+            padding-top: 80px;
+            transition: left 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(20px);
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+        }
+
+        #provider-sidebar.open {
+            left: 0;
+        }
+
+        .sidebar-header {
+            color: var(--accent-green);
+            font-size: 1.2rem;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--accent-green);
+            padding-bottom: 10px;
+        }
+
+        .provider-item {
+            margin-bottom: 15px;
+            padding: 12px;
+            border: 1px solid #333;
+            background: rgba(255, 255, 255, 0.03);
+            transition: border-color 0.3s;
+        }
+
+        .provider-item:hover {
+            border-color: var(--accent-green);
+        }
+
+        .provider-item-name {
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+            color: #ccc;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #333;
+            transition: .4s;
+            border: 1px solid #555;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: #888;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: rgba(57, 255, 20, 0.2);
+            border-color: var(--accent-green);
+        }
+
+        input:checked+.slider:before {
+            transform: translateX(24px);
+            background-color: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
+        }
+
+        #sidebar-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1050;
+            display: none;
+        }
+
+        #sidebar-overlay.open {
+            display: block;
+        }
+
+        .flush-btn {
+            border: 1px solid var(--accent-magenta);
+            color: var(--accent-magenta);
+            margin-top: auto;
+            margin-bottom: 20px;
+            padding: 12px;
+            text-align: center;
+            background: rgba(255, 0, 255, 0.05);
+            cursor: pointer;
+            font-weight: bold;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+        }
+
+        .flush-btn:hover {
+            background: var(--accent-magenta);
+            color: #000;
+            box-shadow: 0 0 20px var(--accent-magenta);
+        }
+
+        /* Unified Inspector (Carousel + Telescope) */
+        #inspector-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            justify-content: flex-end;
+            align-items: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .inspector-panel {
+            height: 90vh;
+            background: rgba(10, 10, 10, 0.95);
+            backdrop-filter: blur(20px);
+            pointer-events: auto;
+            display: flex;
+            flex-direction: column;
+            animation: slideInRight 0.3s ease-out;
+        }
+
+        #carousel-panel {
+            width: 400px;
+            border: 2px solid var(--accent-magenta);
+            border-left: 1px solid rgba(255, 0, 255, 0.2);
+            padding: 30px;
+            box-shadow: 0 0 30px rgba(255, 0, 255, 0.2);
+        }
+
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+            }
+
+            to {
+                transform: translateX(0);
+            }
+        }
+
+        .carousel-item {
+            padding: 12px;
+            border: 1px solid rgba(255, 0, 255, 0.2);
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .carousel-item.selected {
+            background: rgba(0, 243, 255, 0.2);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 15px var(--accent-cyan);
+        }
+
+        .carousel-item:hover {
+            background: rgba(255, 0, 255, 0.1);
+            border-color: var(--accent-magenta);
+            box-shadow: 0 0 10px var(--accent-magenta);
+        }
+
+        .carousel-item-time {
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+        }
+
+        .carousel-item-id {
+            font-size: 0.7rem;
+            color: #888;
+        }
+
+        .pagination-ctrl {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: auto;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 0, 255, 0.2);
+        }
+
+        #controls {
+            position: absolute;
+            top: 75px;
+            left: 74px;
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 2000;
+        }
+
+        #controls.open {
+            display: flex;
+        }
+
+        .btn {
+            background: transparent;
+            border: 1px solid var(--accent-cyan);
+            color: var(--accent-cyan);
+            padding: 8px 15px;
+            cursor: pointer;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            transition: all 0.3s;
+            background: rgba(0, 243, 255, 0.05);
+        }
+
+        .btn:hover {
+            background: var(--accent-cyan);
+            color: #000;
+            box-shadow: 0 0 20px var(--accent-cyan);
+        }
+
+        .glitch-text {
+            animation: glitch 1s linear infinite;
+        }
+
+        @keyframes glitch {
+
+            2%,
+            64% {
+                transform: translate(2px, 0) skew(0deg);
+            }
+
+            4%,
+            60% {
+                transform: translate(-2px, 0) skew(0deg);
+            }
+
+            62% {
+                transform: translate(0, 0) skew(5deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui-container">
+        <header>
+            <h1 class="glitch-text">Lochness Cyberdeck - v1.1.0</h1>
+            <div id="meta-info">REALTIME STREAM | BUFFER: 30m</div>
+        </header>
+        <main id="canvas-wrapper">
+            <canvas id="timeline-canvas"></canvas>
+            <div id="lane-labels-container"></div>
+
+            <div id="sidebar-toggle" onclick="toggleSidebar()" title="Providers Config">
+                <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
+                <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
+                <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
+            </div>
+
+            <div id="view-toggle" onclick="toggleViewControls()" title="View Settings">
+                <div style="font-size: 20px; line-height: 1;">👁</div>
+            </div>
+
+            <div id="multiselect-toggle" onclick="toggleMultiSelectMode()" title="Multi-Select Mode">
+                <div style="font-size: 24px; line-height: 1; padding-top: 5px;">*</div>
+            </div>
+
+            <div id="areaselect-toggle" onclick="toggleAreaSelectMode()" title="Area Select Mode">
+                <div style="font-size: 20px; line-height: 1; font-weight: bold; transform: scale(1.5);">□</div>
+            </div>
+
+            <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+            <div id="provider-sidebar">
+                <div class="sidebar-header">CYBERDECK CONFIG</div>
+                <div id="provider-list" style="flex: 1; overflow-y: auto;">
+                    <!-- Loaded dynamically -->
+                    <div style="color:#666; font-size:0.8rem; text-align:center; margin-top:50px;">SUBSYSTEM SCAN...
+                    </div>
+                </div>
+                <div class="flush-btn" onclick="flushCache()">FLUSH CACHE BUFFER</div>
+            </div>
+
+            <div id="controls">
+                <button class="btn" onclick="resetZoom()">Reset Vision</button>
+                <button class="btn" onclick="setZoomLevel(1)">Lv 1 (3m)</button>
+                <button class="btn" onclick="setZoomLevel(2)">Lv 2 (10m)</button>
+                <button class="btn" onclick="setZoomLevel(3)">Lv 3 (30m)</button>
+                <button class="btn" id="autofollow-btn" onclick="toggleAutoFollow()">Auto-Follow: ON</button>
+                <button class="btn" onclick="showAllStreams()"
+                    style="border-color: var(--accent-magenta); color: var(--accent-magenta);">Restore Hidden
+                    Streams</button>
+            </div>
+
+            <!-- Unified Inspector Overlay -->
+            <div id="inspector-overlay" onclick="closeCarousel(event)">
+                <!-- Detail Panel (Telescope) -->
+                <div id="telescope-panel" class="inspector-panel"
+                    style="width:600px; border:2px solid var(--accent-cyan); border-right:none; display:none;"
+                    onclick="event.stopPropagation()">
+                    <div style="padding: 30px; padding-bottom: 0;">
+                        <button class="btn"
+                            style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
+                            onclick="document.getElementById('telescope-panel').style.display='none'">Abort
+                            View</button>
+                    </div>
+                    <div id="telescope-content" style="padding:30px; padding-top:10px; overflow-y:auto; flex:1;"></div>
+                </div>
+
+                <!-- Selection Panel (Carousel) -->
+                <div id="carousel-panel" class="inspector-panel"
+                    style="width:400px; border:2px solid var(--accent-magenta); padding:30px; padding-top:10px;"
+                    onclick="event.stopPropagation()">
+                    <div
+                        style="color:var(--accent-magenta); font-weight:bold; margin-bottom:15px; font-size:0.8rem; letter-spacing:2px; display:flex; justify-content:space-between;">
+                        <span>CLUSTER DETECTED</span>
+                        <span id="carousel-stats" style="color:#666;"></span>
+                    </div>
+                    <div id="carousel-list" style="flex: 1; overflow-y: auto;"></div>
+
+                    <div class="pagination-ctrl">
+                        <button class="btn" id="prev-btn" onclick="prevPage()">PREV</button>
+                        <span id="page-indicator" style="font-size:0.8rem; color:var(--accent-magenta);">PAGE 1 /
+                            1</span>
+                        <button class="btn" id="next-btn" onclick="nextPage()">NEXT</button>
+                    </div>
+
+                    <button class="btn"
+                        style="width:100%; margin-top:15px; border-color:var(--accent-magenta); color:var(--accent-magenta);"
+                        onclick="closeCarousel(event)">Abort Selection</button>
+                </div>
+            </div>
+
+            <!-- Standalone Telescope Overlay -->
+            <div id="telescope-overlay" onclick="closeTelescope(event)">
+                <div id="telescope-window" onclick="event.stopPropagation()">
+                    <div style="margin-bottom: 20px;">
+                        <button class="btn"
+                            style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
+                            onclick="closeTelescope(event)">Abort View</button>
+                    </div>
+                    <div id="telescope-standalone-content" style="overflow-y:auto; padding-top:10px;"></div>
+                </div>
+            </div>
+
+
+        </main>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('timeline-canvas');
+        const ctx = canvas.getContext('2d');
+        const telescopeOverlay = document.getElementById('telescope-overlay');
+        const telescopeStandaloneContent = document.getElementById('telescope-standalone-content');
+        const inspectorOverlay = document.getElementById('inspector-overlay');
+        const telescopePanel = document.getElementById('telescope-panel');
+        const telescopeContent = document.getElementById('telescope-content');
+        const carouselList = document.getElementById('carousel-list');
+        const carouselStats = document.getElementById('carousel-stats');
+        const pageIndicator = document.getElementById('page-indicator');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const autofollowBtn = document.getElementById('autofollow-btn');
+
+        const laneLabelsContainer = document.getElementById('lane-labels-container');
+        const multiselectToggle = document.getElementById('multiselect-toggle');
+        const areaselectToggle = document.getElementById('areaselect-toggle');
+
+        const PROVIDER_COLORS = [
+            '#00f3ff', // Cyan
+            '#39ff14', // Green
+            '#fbff00', // Yellow
+            '#ff9d00', // Orange
+            '#ff003c', // Red
+            '#bc00ff', // Purple
+            '#0062ff', // Blue
+            '#ff00ff'  // Magenta
+        ];
+
+        const PROVIDER_NAMES = {
+            "22fb2cd60e7b422ba0c72fad1fd0e716": "Process (Kernel)",
+            "7dd42a49532948328dfd43d979153a88": "Network (Kernel)",
+            "1c95126e7eea49a9a3fea378b03ddb4d": "DNS Client"
+        };
+
+        let events = [];
+        let providersMap = new Map(); // All providers from API: GUID -> Name
+        let providers = new Map(); // Active providers in trace
+        let nextColorIndex = 0;
+        let lanes = [];
+
+        const providerSidebar = document.getElementById('provider-sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        const providerList = document.getElementById('provider-list');
+        let enabledProviders = new Set();
+
+        function toggleSidebar() {
+            providerSidebar.classList.toggle('open');
+            sidebarOverlay.classList.toggle('open');
+            if (providerSidebar.classList.contains('open')) {
+                renderProviderMenu();
+            }
+        }
+
+        function toggleViewControls() {
+            const controls = document.getElementById('controls');
+            controls.classList.toggle('open');
+        }
+
+        function toggleMultiSelectMode() {
+            isMultiSelectMode = !isMultiSelectMode;
+            if (isMultiSelectMode) {
+                isAreaSelectMode = false;
+                updateAreaSelectBtn();
+            } else {
+                selectedEvents = [];
+                activeEvent = null;
+                inspectorOverlay.style.display = 'none';
+                telescopeOverlay.style.display = 'none';
+            }
+            updateMultiSelectBtn();
+        }
+
+        function updateMultiSelectBtn() {
+            if (isMultiSelectMode) {
+                multiselectToggle.classList.add('active');
+            } else {
+                multiselectToggle.classList.remove('active');
+            }
+        }
+
+        function toggleAreaSelectMode() {
+            isAreaSelectMode = !isAreaSelectMode;
+            if (isAreaSelectMode) {
+                isMultiSelectMode = false;
+                updateMultiSelectBtn();
+            }
+            updateAreaSelectBtn();
+        }
+
+        function updateAreaSelectBtn() {
+            if (isAreaSelectMode) {
+                areaselectToggle.classList.add('active');
+            } else {
+                areaselectToggle.classList.remove('active');
+            }
+        }
+
+        async function fetchProviderContext() {
+            try {
+                const resp = await fetch('/api/providers');
+                const data = await resp.json();
+                data.forEach(p => {
+                    const clean = p.guid.replace(/[{}]/g, '').toUpperCase();
+                    providersMap.set(clean, p);
+                    if (p.enabled) enabledProviders.add(clean);
+                });
+            } catch (err) {
+                console.error("Failed to fetch provider list", err);
+            }
+        }
+
+        function renderProviderMenu() {
+            providerList.innerHTML = '';
+            providersMap.forEach((p, guid) => {
+                const isEnabled = enabledProviders.has(guid);
+                const item = document.createElement('div');
+                item.className = 'provider-item';
+                item.innerHTML = `
+                    <div class="provider-item-name">${p.name}</div>
+                    <div class="toggle-switch">
+                        <span style="font-size:0.7rem; color:${isEnabled ? 'var(--accent-green)' : '#666'};">
+                            ${isEnabled ? 'ACTIVE' : 'DISABLED'}
+                        </span>
+                        <label class="switch">
+                            <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleProvider('${guid}', this.checked)">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                `;
+                providerList.appendChild(item);
+            });
+        }
+
+        async function toggleProvider(guid, enable) {
+            const action = enable ? 'Enable' : 'Disable';
+            try {
+                const resp = await fetch('/config/providers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: action, provider: `${guid}` })
+                });
+
+                if (resp.ok) {
+                    if (enable) enabledProviders.add(guid);
+                    else enabledProviders.delete(guid);
+                } else {
+                    console.error(`Failed to ${action} provider: ${guid}`);
+                }
+                renderProviderMenu(); // Always refresh to sync UI state
+            } catch (err) {
+                console.error("Error toggling provider:", err);
+                renderProviderMenu();
+            }
+        }
+
+        async function flushCache() {
+            if (!confirm("Are you sure you want to FLUSH all cached events? This action cannot be undone.")) return;
+            try {
+                const resp = await fetch('/events/flush', { method: 'POST' });
+                if (resp.ok) {
+                    events = [];
+                    providers = new Map();
+                    lanes = [];
+                    alert("Cache flushed successfully.");
+                    toggleSidebar();
+                } else {
+                    alert("Failed to flush cache.");
+                }
+            } catch (err) {
+                alert("Network error while flushing cache.");
+                console.error("Flush failed", err);
+            }
+        }
+
+        // View State
+        let timeRange = 30 * 60 * 1000; // 30 minutes in ms
+        let lookAheadBuffer = 10 * 60 * 1000; // 10 minutes in future (Default)
+        let endTime = Date.now() + lookAheadBuffer;
+        let startTime = endTime - timeRange;
+        let isAutoFollow = true;
+
+        // Interaction State
+        let isDragging = false;
+        let lastMouseX = 0;
+        let hoveredEvent = null;
+        let selectedEvents = [];
+        let activeEvent = null;
+        let isMultiSelectMode = false;
+        let isAreaSelectMode = false;
+        let isMarqueeDragging = false;
+        let marqueeStart = { x: 0, y: 0 };
+        let marqueeEnd = { x: 0, y: 0 };
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight - headerHeight();
+            draw();
+        }
+
+        function headerHeight() {
+            return document.querySelector('header').offsetHeight;
+        }
+
+        window.addEventListener('resize', resize);
+
+        let maxTimestamp = 0n;
+        async function fetchEvents() {
+            try {
+                const url = maxTimestamp > 0n ? `/events/search?since=${maxTimestamp}` : '/events/search';
+                const resp = await fetch(url);
+                const data = await resp.json();
+
+                if (data.length === 0) return;
+
+                const newEvents = data.map(e => {
+                    const ts = BigInt(e.timestamp);
+                    if (ts > maxTimestamp) maxTimestamp = ts;
+
+                    const unixMs = Number((ts - 116444736000000000n) / 10000n);
+                    let providerHex = Array.from(e.provider_id || []).map(b => b.toString(16).padStart(2, '0')).join('');
+
+                    if (!providers.has(providerHex)) {
+                        providers.set(providerHex, {
+                            id: providerHex,
+                            name: PROVIDER_NAMES[providerHex] || providerHex.substring(0, 8),
+                            lane: -1,
+                            color: PROVIDER_COLORS[nextColorIndex % PROVIDER_COLORS.length]
+                        });
+                        nextColorIndex++;
+                    }
+
+                    return {
+                        ...e,
+                        providerHex,
+                        timestampMs: unixMs
+                    };
+                });
+
+                events = [...events, ...newEvents];
+                // Keep only last 30 mins roughly (plus buffer)
+                const cutoff = Date.now() - (40 * 60 * 1000);
+                events = events.filter(e => e.timestampMs > cutoff);
+
+                updateLanes();
+            } catch (err) {
+                console.error("Fetch failed", err);
+            }
+        }
+
+        function updateLanes() {
+            // Include hidden flag
+            const allProviders = [...providers.values()];
+            const visibleProviders = allProviders.filter(p => !p.isHidden);
+
+            visibleProviders.sort((a, b) => a.id.localeCompare(b.id));
+
+            visibleProviders.forEach((p, index) => {
+                p.lane = index;
+            });
+            lanes = visibleProviders.map(p => p.id);
+            renderLaneHeaders();
+        }
+
+        function renderLaneHeaders() {
+            laneLabelsContainer.innerHTML = '';
+            const laneHeight = canvas.height / (lanes.length + 1);
+
+            lanes.forEach((id, i) => {
+                const p = providers.get(id);
+                const y = (i + 1) * laneHeight;
+                const topY = y - laneHeight / 2;
+
+                const header = document.createElement('div');
+                header.className = 'lane-header';
+                header.style.top = `${topY + 2}px`; // Small 2px padding from top border
+                header.style.backgroundColor = p.color;
+                header.style.boxShadow = `0 0 15px ${p.color}aa`;
+
+                header.innerHTML = `
+                    <div class="lane-name" title="${p.name}">${p.name}</div>
+                    <button class="lane-ctrl-btn" onclick="selectAllInStream('${id}')" title="Select All In Stream">ALL</button>
+                    <button class="lane-ctrl-btn" onclick="hideStream('${id}')" title="Hide Stream">X</button>
+                `;
+                laneLabelsContainer.appendChild(header);
+            });
+        }
+
+        function selectAllInStream(providerHex) {
+            const streamEvents = events.filter(e => e.providerHex === providerHex);
+            if (streamEvents.length > 0) {
+                if (isMultiSelectMode) {
+                    streamEvents.forEach(e => {
+                        if (!selectedEvents.includes(e)) {
+                            selectedEvents.push(e);
+                        }
+                    });
+                    showCarousel(selectedEvents);
+                } else {
+                    showCarousel(streamEvents);
+                }
+            }
+        }
+
+        function hideStream(providerHex) {
+            const p = providers.get(providerHex);
+            if (p) {
+                p.isHidden = true;
+                updateLanes();
+            }
+        }
+
+        function showAllStreams() {
+            providers.forEach(p => p.isHidden = false);
+            updateLanes();
+        }
+
+        function drawGrid() {
+            const laneHeight = canvas.height / (lanes.length + 1);
+
+            // Draw Lane Boxes
+            for (let i = 0; i < lanes.length; i++) {
+                const p = providers.get(lanes[i]);
+                const y = (i + 1) * laneHeight;
+
+                // Lane Background/Box
+                ctx.fillStyle = `rgba(${parseInt(p.color.slice(1, 3), 16)}, ${parseInt(p.color.slice(3, 5), 16)}, ${parseInt(p.color.slice(5, 7), 16)}, 0.03)`;
+                ctx.fillRect(0, y - laneHeight / 2, canvas.width, laneHeight);
+
+                // Lane Borders
+                ctx.strokeStyle = p.color + '33'; // 20% opacity
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, y - laneHeight / 2);
+                ctx.lineTo(canvas.width, y - laneHeight / 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(0, y + laneHeight / 2);
+                ctx.lineTo(canvas.width, y + laneHeight / 2);
+                ctx.stroke();
+            }
+
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+
+            const timeStep = (endTime - startTime) / 10;
+            ctx.textAlign = 'center';
+            for (let i = 0; i <= 10; i++) {
+                const t = startTime + i * timeStep;
+                const x = timeToX(t);
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+
+                ctx.fillStyle = t > Date.now() ? '#333' : '#666';
+                const d = new Date(t);
+                ctx.fillText(d.toLocaleTimeString(), x, canvas.height - 10);
+            }
+
+            // Current Time Marker
+            const nowX = timeToX(Date.now());
+            ctx.strokeStyle = 'rgba(255, 0, 255, 0.5)';
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(nowX, 0);
+            ctx.lineTo(nowX, canvas.height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        function timeToX(t) {
+            return ((t - startTime) / (endTime - startTime)) * canvas.width;
+        }
+
+        function xToTime(x) {
+            return startTime + (x / canvas.width) * (endTime - startTime);
+        }
+
+        function drawEvents() {
+            const laneHeight = canvas.height / (lanes.length + 1);
+
+            // 1. Bucket events by lane to ensure correct Y-sorting
+            const laneBuckets = new Map();
+            events.forEach(e => {
+                if (e.timestampMs < startTime || e.timestampMs > endTime) return;
+                const p = providers.get(e.providerHex);
+                if (!p || p.isHidden || p.lane === -1) return;
+
+                const laneIdx = p.lane;
+                if (!laneBuckets.has(laneIdx)) laneBuckets.set(laneIdx, []);
+                laneBuckets.get(laneIdx).push(e);
+            });
+
+            // 2. Greedy Clustering per Lane
+            const clusters = [];
+            laneBuckets.forEach((bucket, laneIdx) => {
+                // Sort by time (X position)
+                bucket.sort((a, b) => a.timestampMs - b.timestampMs);
+
+                let activeCluster = [];
+                let clusterCenterX = null;
+                const CLUSTER_RADIUS = 10; // Pixels
+
+                bucket.forEach(e => {
+                    const x = timeToX(e.timestampMs);
+                    const y = (laneIdx + 1) * laneHeight;
+
+                    e.renderX = x;
+                    e.renderY = y;
+
+                    if (activeCluster.length === 0) {
+                        activeCluster.push(e);
+                        clusterCenterX = x;
+                    } else {
+                        // Check distance from current cluster origin
+                        if (x - clusterCenterX <= CLUSTER_RADIUS) {
+                            activeCluster.push(e);
+                        } else {
+                            // Finalize current cluster
+                            clusters.push({ events: activeCluster, x: clusterCenterX, y: y });
+                            // Start new cluster
+                            activeCluster = [e];
+                            clusterCenterX = x;
+                        }
+                    }
+                });
+
+                // Push final cluster
+                if (activeCluster.length > 0) {
+                    clusters.push({ events: activeCluster, x: clusterCenterX, y: (laneIdx + 1) * laneHeight });
+                }
+            });
+
+            // 3. Draw Clusters
+            clusters.forEach((cluster) => {
+                const { events: clusterEvents, x, y } = cluster;
+                const isHovered = clusterEvents.some(e => e === hoveredEvent);
+                const isSelected = selectedEvents.length > 0 && clusterEvents.some(e => selectedEvents.includes(e));
+                const isActive = activeEvent && clusterEvents.includes(activeEvent);
+                const isMulti = clusterEvents.length > 1;
+                const p = providers.get(clusterEvents[0].providerHex) || { color: '#00f3ff' };
+
+                // State determination
+                const isFocus = isHovered || isSelected || isActive;
+
+                // Color - Yellow for selection, Provider color for the rest
+                if (isSelected || isActive) {
+                    ctx.fillStyle = '#fbff00';
+                    ctx.shadowColor = '#fbff00';
+                } else {
+                    ctx.fillStyle = p.color;
+                    ctx.shadowColor = p.color;
+                }
+
+                // Shadow intensity
+                if (isActive) {
+                    ctx.shadowBlur = 30;
+                } else if (isFocus) {
+                    ctx.shadowBlur = 20;
+                } else {
+                    ctx.shadowBlur = isMulti ? 10 : 5;
+                }
+
+                ctx.beginPath();
+                const radius = isFocus ? 10 : (isMulti ? 7 : 5);
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Borders (Visual distinction for Clusters and Selection)
+                if (isFocus || isMulti) {
+                    ctx.strokeStyle = '#fff';
+                    // Thicker border for focused items, slightly thinner for inactive clusters
+                    ctx.lineWidth = isFocus ? 3 : 1.5;
+                    ctx.stroke();
+                }
+
+                ctx.shadowBlur = 0;
+
+                // Store the cluster back in events for click detection
+                clusterEvents.forEach(e => {
+                    e.cluster = clusterEvents;
+                });
+            });
+        }
+
+        function animate() {
+            if (isAutoFollow) {
+                const now = Date.now();
+                endTime = now + lookAheadBuffer;
+                startTime = endTime - timeRange;
+            }
+            draw();
+            requestAnimationFrame(animate);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+            drawEvents();
+            if (isMarqueeDragging) {
+                drawMarquee();
+            }
+        }
+
+        function drawMarquee() {
+            const x = marqueeStart.x;
+            const y = marqueeStart.y;
+            const w = marqueeEnd.x - x;
+            const h = marqueeEnd.y - y;
+
+            ctx.fillStyle = 'rgba(0, 243, 255, 0.1)';
+            ctx.strokeStyle = 'rgba(0, 243, 255, 0.8)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(x, y, w, h);
+            ctx.fillRect(x, y, w, h);
+            ctx.setLineDash([]);
+        }
+
+        function parseEventData(str) {
+            try {
+                const decoded = atob(str);
+                let dataObj;
+
+                // Try JSON first
+                try {
+                    dataObj = JSON.parse(decoded);
+                } catch (e) {
+                    // Not JSON, handle as old key=value format
+                    const text = decoded;
+                    const lines = text.split(/[\n\r]+/);
+                    const pairs = [];
+                    lines.forEach(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        const eqIndex = trimmed.indexOf('=');
+                        if (eqIndex > 0) {
+                            pairs.push({ k: trimmed.substring(0, eqIndex).trim(), v: trimmed.substring(eqIndex + 1).trim() });
+                        }
+                    });
+                    if (pairs.length === 0) return `<div style="color:var(--accent-green); white-space:pre-wrap;">${text}</div>`;
+                    let html = '<table class="kv-table">';
+                    pairs.forEach(p => { html += `<tr><td class="kv-key">${p.k}</td><td class="kv-val">${p.v}</td></tr>`; });
+                    html += '</table>';
+                    return html;
+                }
+
+                // It is JSON, render table
+                let html = '<table class="kv-table">';
+                for (const [k, v] of Object.entries(dataObj)) {
+                    html += `<tr><td class="kv-key">${k}</td><td class="kv-val">${v}</td></tr>`;
+                }
+                html += '</table>';
+                return html;
+            } catch (e) {
+                return str;
+            }
+        }
+
+        let currentTelescopeIndex = -1;
+
+        function showTelescope(e, listIndex = -1) {
+            currentTelescopeIndex = listIndex;
+            activeEvent = e;
+            if (listIndex === -1) {
+                selectedEvents = [e];
+            }
+            const date = new Date(e.timestampMs);
+            const provider = providers.get(e.providerHex);
+            const formattedData = parseEventData(e.data);
+
+            const isCluster = listIndex !== -1 && carouselData.length > 1;
+            const activeContent = isCluster ? telescopeContent : telescopeStandaloneContent;
+
+            if (isCluster) {
+                telescopePanel.style.display = 'flex';
+                renderCarousel(); // Update highlighting
+            } else {
+                telescopeOverlay.style.display = 'flex';
+            }
+
+            let navHtml = '';
+            if (isCluster) {
+                navHtml = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; border-bottom:1px solid var(--accent-cyan); padding-bottom:10px;">
+                        <button class="btn" style="padding:4px 10px;" onclick="moveTelescope(-1)" ${listIndex === 0 ? 'disabled' : ''}>&lt; PREV</button>
+                        <span style="font-size:0.8rem; color:var(--accent-cyan);">EVENT ${listIndex + 1} / ${carouselData.length}</span>
+                        <button class="btn" style="padding:4px 10px;" onclick="moveTelescope(1)" ${listIndex === carouselData.length - 1 ? 'disabled' : ''}>NEXT &gt;</button>
+                    </div>
+                `;
+            }
+
+            activeContent.innerHTML = `
+                ${navHtml}
+                <div class="detail-row">
+                    <span class="detail-label">TEMPORAL MARKER</span>
+                    <span class="detail-value">${date.toLocaleString()} : ${date.getMilliseconds()}ms</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">ORIGIN PROVIDER</span>
+                    <span class="detail-value">${provider.name}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">EVENT IDENTIFIER</span>
+                    <span class="detail-value">${e.event_id}</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">STRUCTURED DATA</span>
+                    <div style="background:rgba(0,0,0,0.4); padding:10px; border-radius:4px;">${formattedData}</div>
+                </div>
+            `;
+        }
+
+        function moveTelescope(delta) {
+            const newIndex = currentTelescopeIndex + delta;
+            if (newIndex >= 0 && newIndex < carouselData.length) {
+                showTelescope(carouselData[newIndex], newIndex);
+            }
+        }
+
+        function closeTelescope(e) {
+            telescopeOverlay.style.display = 'none';
+            selectedEvents = [];
+            activeEvent = null;
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (isAreaSelectMode) {
+                isMarqueeDragging = true;
+                marqueeStart = { x: mouseX, y: mouseY };
+                marqueeEnd = { x: mouseX, y: mouseY };
+                return;
+            }
+
+            // Find clicked event or cluster
+            let selectedEvent = null;
+            for (const evt of events) {
+                // Ignore events currently not rendered (out of view)
+                if (evt.timestampMs < startTime || evt.timestampMs > endTime) continue;
+
+                if (evt.renderX === undefined || evt.renderY === undefined) continue;
+                const dist = Math.hypot(evt.renderX - mouseX, evt.renderY - mouseY);
+                if (dist < 15) {
+                    selectedEvent = evt;
+                    break;
+                }
+            }
+
+            if (selectedEvent) {
+                if (isMultiSelectMode) {
+                    const targetItems = (selectedEvent.cluster && selectedEvent.cluster.length > 1)
+                        ? selectedEvent.cluster
+                        : [selectedEvent];
+
+                    const isAlreadySelected = targetItems.some(e => selectedEvents.includes(e));
+
+                    if (isAlreadySelected) {
+                        // Toggle: Remove if present
+                        selectedEvents = selectedEvents.filter(e => !targetItems.includes(e));
+                    } else {
+                        // Add if not present
+                        targetItems.forEach(e => {
+                            if (!selectedEvents.includes(e)) {
+                                selectedEvents.push(e);
+                            }
+                        });
+                    }
+
+                    if (selectedEvents.length > 1) {
+                        showCarousel(selectedEvents);
+                    } else if (selectedEvents.length === 1) {
+                        showTelescope(selectedEvents[0]);
+                    } else {
+                        inspectorOverlay.style.display = 'none';
+                        telescopeOverlay.style.display = 'none';
+                    }
+                } else {
+                    if (selectedEvent.cluster && selectedEvent.cluster.length > 1) {
+                        showCarousel(selectedEvent.cluster);
+                    } else {
+                        showTelescope(selectedEvent);
+                    }
+                }
+                return;
+            }
+
+            // Deselect on empty click
+            selectedEvents = [];
+            activeEvent = null;
+            isMultiSelectMode = false;
+            isAreaSelectMode = false;
+            updateMultiSelectBtn();
+            updateAreaSelectBtn();
+            inspectorOverlay.style.display = 'none';
+            telescopeOverlay.style.display = 'none';
+
+            isDragging = true;
+            lastMouseX = e.clientX;
+            isAutoFollow = false;
+            updateBtn();
+        });
+
+        let carouselData = [];
+        let carouselPage = 0;
+        const CAROUSEL_PAGE_SIZE = 8;
+
+        function showCarousel(eventCluster) {
+            selectedEvents = eventCluster;
+            activeEvent = null;
+            carouselData = [...eventCluster].sort((a, b) => b.timestampMs - a.timestampMs);
+            carouselPage = 0;
+            inspectorOverlay.style.display = 'flex';
+            telescopePanel.style.display = 'none'; // Clear detail view until item picked
+            renderCarousel();
+        }
+
+        function renderCarousel() {
+            carouselList.innerHTML = '';
+            const start = carouselPage * CAROUSEL_PAGE_SIZE;
+            const end = start + CAROUSEL_PAGE_SIZE;
+            const pageItems = carouselData.slice(start, end);
+            const totalPages = Math.ceil(carouselData.length / CAROUSEL_PAGE_SIZE);
+
+            pageItems.forEach((e, idx) => {
+                const globalIdx = start + idx;
+                const date = new Date(e.timestampMs);
+                const provider = providers.get(e.providerHex);
+                const item = document.createElement('div');
+                item.className = `carousel-item ${globalIdx === currentTelescopeIndex ? 'selected' : ''}`;
+                item.innerHTML = `
+                    <div>
+                        <div class="carousel-item-time" style="${globalIdx === currentTelescopeIndex ? 'color:white;' : ''}">${date.toLocaleTimeString()} : ${date.getMilliseconds()}ms</div>
+                        <div style="font-size:0.75rem; color:${globalIdx === currentTelescopeIndex ? 'white' : 'var(--accent-green)'};">${provider.name}</div>
+                    </div>
+                `;
+                item.onclick = () => {
+                    showTelescope(e, globalIdx);
+                };
+                carouselList.appendChild(item);
+            });
+
+            carouselStats.innerText = `${carouselData.length} EVENTS`;
+            pageIndicator.innerText = `PAGE ${carouselPage + 1} / ${totalPages || 1}`;
+            prevBtn.disabled = carouselPage === 0;
+            nextBtn.disabled = carouselPage >= totalPages - 1;
+        }
+
+        function nextPage() {
+            if (carouselPage < Math.ceil(carouselData.length / CAROUSEL_PAGE_SIZE) - 1) {
+                carouselPage++;
+                renderCarousel();
+            }
+        }
+
+        function prevPage() {
+            if (carouselPage > 0) {
+                carouselPage--;
+                renderCarousel();
+            }
+        }
+
+        function closeCarousel(e) {
+            inspectorOverlay.style.display = 'none';
+            selectedEvents = [];
+            activeEvent = null;
+        }
+
+        window.addEventListener('mouseup', () => {
+            if (isMarqueeDragging) {
+                const minX = Math.min(marqueeStart.x, marqueeEnd.x);
+                const maxX = Math.max(marqueeStart.x, marqueeEnd.x);
+                const minY = Math.min(marqueeStart.y, marqueeEnd.y);
+                const maxY = Math.max(marqueeStart.y, marqueeEnd.y);
+
+                const areaBoxEvents = events.filter(e => {
+                    return e.renderX >= minX && e.renderX <= maxX &&
+                        e.renderY >= minY && e.renderY <= maxY &&
+                        e.timestampMs >= startTime && e.timestampMs <= endTime;
+                });
+
+                if (areaBoxEvents.length > 0) {
+                    selectedEvents = areaBoxEvents;
+                    showCarousel(selectedEvents);
+                }
+
+                isMarqueeDragging = false;
+                isAreaSelectMode = false;
+                updateAreaSelectBtn();
+            }
+            isDragging = false;
+        });
+
+        canvas.addEventListener('mousemove', e => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            if (isMarqueeDragging) {
+                marqueeEnd = { x: mouseX, y: mouseY };
+                return;
+            }
+
+            if (isDragging) {
+                const deltaX = e.clientX - lastMouseX;
+                const timeDelta = (deltaX / canvas.width) * (endTime - startTime);
+                startTime -= timeDelta;
+                endTime -= timeDelta;
+                lastMouseX = e.clientX;
+            }
+
+            const laneHeight = canvas.height / (lanes.length + 1);
+            let found = null;
+            for (const evt of events) {
+                if (evt.timestampMs < startTime || evt.timestampMs > endTime) continue;
+                if (evt.renderX === undefined || evt.renderY === undefined) continue;
+
+                const dist = Math.hypot(evt.renderX - mouseX, evt.renderY - mouseY);
+                if (dist < 10) {
+                    found = evt;
+                    break;
+                }
+            }
+            hoveredEvent = found;
+        });
+
+        canvas.addEventListener('wheel', e => {
+            e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseTime = xToTime(mouseX);
+
+            const zoomFactor = e.deltaY > 0 ? 1.1 : 0.9;
+            const newRange = (endTime - startTime) * zoomFactor;
+
+            if (newRange < 5000) return; // 5s min
+            if (newRange > 48 * 60 * 60 * 1000) return; // 48h max
+
+            const ratio = (mouseTime - startTime) / (endTime - startTime);
+            startTime = mouseTime - ratio * newRange;
+            endTime = mouseTime + (1 - ratio) * newRange;
+            timeRange = newRange;
+
+            isAutoFollow = false;
+            updateBtn();
+        });
+
+        function resetZoom() {
+            timeRange = 30 * 60 * 1000;
+            lookAheadBuffer = 10 * 60 * 1000;
+            endTime = Date.now() + lookAheadBuffer;
+            startTime = endTime - timeRange;
+            isAutoFollow = true;
+            updateBtn();
+        }
+
+        function setZoomLevel(lvl) {
+            const now = Date.now();
+            if (lvl === 1) {
+                timeRange = 3.5 * 60 * 1000; // 3.5m total
+                lookAheadBuffer = 0.5 * 60 * 1000; // 30s future
+            } else if (lvl === 2) {
+                timeRange = 12 * 60 * 1000; // 12m total
+                lookAheadBuffer = 2 * 60 * 1000; // 2m future
+            } else {
+                timeRange = 30 * 60 * 1000; // 30m total
+                lookAheadBuffer = 10 * 60 * 1000; // 10m future
+            }
+
+            endTime = now + lookAheadBuffer;
+            startTime = endTime - timeRange;
+            isAutoFollow = true;
+            updateBtn();
+        }
+
+        function toggleAutoFollow() {
+            isAutoFollow = !isAutoFollow;
+            updateBtn();
+        }
+
+        function updateBtn() {
+            autofollowBtn.innerText = `Auto-Follow: ${isAutoFollow ? 'ON' : 'OFF'}`;
+            autofollowBtn.style.color = isAutoFollow ? 'var(--accent-cyan)' : 'var(--accent-magenta)';
+        }
+
+        setInterval(fetchEvents, 2000);
+        resize();
+
+        fetchProviderContext().then(() => {
+            fetchEvents();
+        });
+
+        requestAnimationFrame(animate);
+
+    </script>
+</body>
+
+</html>

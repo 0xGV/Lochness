@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lochness - Provider Management</title>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --text-color: #c9d1d9;
+            --accent-color: #58a6ff;
+            --border-color: #30363d;
+            --success-color: #238636;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background-color: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            width: 400px;
+        }
+
+        h1 {
+            color: var(--accent-color);
+            text-align: center;
+            margin-bottom: 1.5rem;
+            font-weight: 300;
+        }
+
+        .provider-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .provider-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.2s;
+        }
+
+        .provider-item:last-child {
+            border-bottom: none;
+        }
+
+        .provider-item:hover {
+            background-color: #21262d;
+        }
+
+        .provider-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .provider-name {
+            font-weight: bold;
+            font-size: 0.9rem;
+        }
+
+        .provider-guid {
+            font-size: 0.7rem;
+            color: #8b949e;
+        }
+
+        /* Switch Styling */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #30363d;
+            transition: .4s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--success-color);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .status-msg {
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            text-align: center;
+            min-height: 1.2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Lochness Providers</h1>
+        <div id="provider-list" class="provider-list">
+            <!-- Dynamic items here -->
+            <div class="provider-item">Loading...</div>
+        </div>
+        <div id="status" class="status-msg"></div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById('status');
+        const listEl = document.getElementById('provider-list');
+
+        async function fetchProviders() {
+            try {
+                const resp = await fetch('/api/providers');
+                const providers = await resp.json();
+                renderProviders(providers);
+            } catch (err) {
+                statusEl.innerText = 'Error fetching providers: ' + err.message;
+            }
+        }
+
+        function renderProviders(providers) {
+            listEl.innerHTML = '';
+            providers.forEach(p => {
+                const item = document.createElement('div');
+                item.className = 'provider-item';
+                item.innerHTML = `
+                    <div class="provider-info">
+                        <span class="provider-name">${p.name}</span>
+                        <span class="provider-guid">${p.guid}</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" onchange="toggleProvider('${p.guid}', this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                `;
+                listEl.appendChild(item);
+            });
+        }
+
+        async function toggleProvider(guid, enabled) {
+            statusEl.innerText = (enabled ? 'Enabling' : 'Disabling') + ' ' + guid + '...';
+            try {
+                const resp = await fetch('/config/providers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: enabled ? 'Enable' : 'Disable',
+                        provider: guid
+                    })
+                });
+
+                if (resp.ok) {
+                    statusEl.innerText = (enabled ? 'Enabled' : 'Disabled') + ' successfully.';
+                    statusEl.style.color = 'var(--success-color)';
+                } else {
+                    const text = await resp.text();
+                    statusEl.innerText = 'Error: ' + text;
+                    statusEl.style.color = '#f85149';
+                }
+            } catch (err) {
+                statusEl.innerText = 'Network error: ' + err.message;
+                statusEl.style.color = '#f85149';
+            }
+        }
+
+        fetchProviders();
+    </script>
+</body>
+</html>
