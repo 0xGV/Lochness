@@ -49,16 +49,18 @@ const (
 )
 
 type PipeServer struct {
-	Path    string
-	Running bool
-	Storage *Storage
-	mu      sync.Mutex
+	Path     string
+	Running  bool
+	Storage  *Storage
+	Resolver *ProviderResolver
+	mu       sync.Mutex
 }
 
-func NewPipeServer(path string, storage *Storage) *PipeServer {
+func NewPipeServer(path string, storage *Storage, resolver *ProviderResolver) *PipeServer {
 	return &PipeServer{
-		Path:    path,
-		Storage: storage,
+		Path:     path,
+		Storage:  storage,
+		Resolver: resolver,
 	}
 }
 
@@ -145,11 +147,20 @@ func (s *PipeServer) handleConnection(f *os.File) {
 
 		// Construct Event and Push to Storage
 		log.Printf("Received Event [%d] from %x: %s", header.EventId, header.ProviderId, string(payload))
+
+		// Resolve Provider Name
+		guidStr := GUIDFromBytes(header.ProviderId)
+		name := ""
+		if s.Resolver != nil {
+			name = s.Resolver.GetName(guidStr)
+		}
+
 		evt := Event{
-			Timestamp:  header.Timestamp,
-			ProviderId: header.ProviderId,
-			EventId:    header.EventId,
-			Data:       payload,
+			Timestamp:    header.Timestamp,
+			ProviderId:   header.ProviderId,
+			ProviderName: name,
+			EventId:      header.EventId,
+			Data:         payload,
 		}
 		s.Storage.Add(evt)
 	}

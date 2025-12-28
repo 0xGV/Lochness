@@ -971,9 +971,13 @@
                     let providerHex = Array.from(e.provider_id || []).map(b => b.toString(16).padStart(2, '0')).join('');
 
                     if (!providers.has(providerHex)) {
+                        let displayName = e.provider_name;
+                        if (!displayName) {
+                            displayName = PROVIDER_NAMES[providerHex] || providerHex.substring(0, 8);
+                        }
                         providers.set(providerHex, {
                             id: providerHex,
-                            name: PROVIDER_NAMES[providerHex] || providerHex.substring(0, 8),
+                            name: displayName,
                             lane: -1,
                             color: PROVIDER_COLORS[nextColorIndex % PROVIDER_COLORS.length]
                         });

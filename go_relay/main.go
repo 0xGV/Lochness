@@ -21,17 +21,20 @@ func main() {
 	store := server.NewStorage(config)
 	go store.PruneLoop()
 
-	// 2. Start Pipe Ingestor Server
+	// 2. Initialize Provider Resolver
+	resolver := server.NewProviderResolver()
+
+	// 3. Start Pipe Ingestor Server
 	// This listens for the C++ Producer to connect and send data.
 	pipePath := `\\.\pipe\etw_stream`
-	ingestor := server.NewPipeServer(pipePath, store)
+	ingestor := server.NewPipeServer(pipePath, store, resolver)
 	ingestor.Start()
 	log.Printf("Listening on Named Pipe: %s", pipePath)
 
 	// 3. Initialize Control Server
 	// This talks to C++ Control Listener
 	controlPipePath := `\\.\pipe\etw_control`
-	control := server.NewControlServer(store, controlPipePath)
+	control := server.NewControlServer(store, resolver, controlPipePath)
 
 	// 4. Setup HTTP API
 	http.HandleFunc("/events/search", control.HandleSearch)
