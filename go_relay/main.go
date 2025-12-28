@@ -22,7 +22,7 @@ func main() {
 	go store.PruneLoop()
 
 	// 2. Initialize Provider Resolver
-	resolver := server.NewProviderResolver()
+	resolver := server.NewProviderResolver("providers.json")
 
 	// 3. Start Pipe Ingestor Server
 	// This listens for the C++ Producer to connect and send data.

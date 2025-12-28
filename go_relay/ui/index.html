@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,8 +31,8 @@
             padding: 2rem;
             border-radius: 12px;
             border: 1px solid var(--border-color);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            width: 400px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            width: 800px;
         }
 
         h1 {
@@ -116,11 +117,11 @@
             border-radius: 50%;
         }
 
-        input:checked + .slider {
+        input:checked+.slider {
             background-color: var(--success-color);
         }
 
-        input:checked + .slider:before {
+        input:checked+.slider:before {
             transform: translateX(26px);
         }
 
@@ -132,6 +133,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>Lochness Providers</h1>
@@ -204,4 +206,5 @@
         fetchProviders();
     </script>
 </body>
+
 </html>
