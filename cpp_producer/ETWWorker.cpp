@@ -1,6 +1,10 @@
 #define INITGUID
 #include "ETWWorker.h"
+#include <evntprov.h>
+#include <winevt.h>
+#pragma comment(lib, "wevtapi.lib")
 #include <iostream>
+#include <map>
 #include <strsafe.h>
 
 ETWWorker::ETWWorker()
@@ -204,6 +208,367 @@ std::wstring JsonEscape(const std::wstring &s) {
   return res;
 }
 
+std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
+                                            const std::wstring &providerName) {
+  // Use Winevt API as requested for better reliability
+  EVT_HANDLE hMetadata = NULL;
+  if (!providerName.empty()) {
+    hMetadata =
+        EvtOpenPublisherMetadata(NULL, providerName.c_str(), NULL, 0, 0);
+  }
+
+  std::wstring cleanGuid = providerGuid;
+  if (!cleanGuid.empty() && cleanGuid.front() == L'{' &&
+      cleanGuid.back() == L'}') {
+    cleanGuid = cleanGuid.substr(1, cleanGuid.size() - 2);
+  }
+
+  if (!hMetadata) {
+    hMetadata = EvtOpenPublisherMetadata(NULL, cleanGuid.c_str(), NULL, 0, 0);
+  }
+
+  if (hMetadata) {
+    std::wcout << L"Successfully opened metadata for provider: "
+               << (providerName.empty() ? providerGuid : providerName)
+               << std::endl;
+  }
+
+  if (!hMetadata) {
+    // Fallback: If we have observed events, return them
+    std::wcerr << L"Failed to open publisher metadata for: "
+               << cleanGuid.c_str() << L" Error: " << GetLastError()
+               << std::endl;
+
+    std::wstring json = L"[";
+    std::lock_guard<std::mutex> lock(m_stateMutex);
+
+    bool first = true;
+    GUID targetGuid;
+    // We need to parse GUID first to compare
+    if (UuidFromStringW((RPC_WSTR)providerGuid.c_str(), &targetGuid) ==
+        RPC_S_OK) {
+      for (const auto &pair : m_schemaCache) {
+        if (IsEqualGUID(pair.first.ProviderId, targetGuid)) {
+          if (!first)
+            json += L",";
+          json += L"{\"Id\":" + std::to_wstring(pair.first.Id) +
+                  L",\"Description\":\"Observed Event\"}";
+          first = false;
+        }
+      }
+    }
+    json += L"]";
+    return json;
+  }
+
+  std::map<UINT64, std::wstring> keywordMap;
+  std::map<UINT32, std::wstring> opcodeMap;
+  std::map<UINT32, std::wstring> taskMap;
+
+  if (hMetadata) {
+    auto LoadMap = [&](EVT_PUBLISHER_METADATA_PROPERTY_ID arrayId,
+                       EVT_PUBLISHER_METADATA_PROPERTY_ID valId,
+                       EVT_PUBLISHER_METADATA_PROPERTY_ID nameId) {
+      std::map<UINT64, std::wstring> res;
+      EVT_HANDLE hArray = NULL;
+      DWORD bufUsed = 0;
+      if (!EvtGetPublisherMetadataProperty(hMetadata, arrayId, 0, 0, NULL,
+                                           &bufUsed) &&
+          GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        std::vector<BYTE> buf(bufUsed);
+        if (EvtGetPublisherMetadataProperty(hMetadata, arrayId, 0, bufUsed,
+                                            (PEVT_VARIANT)buf.data(),
+                                            &bufUsed)) {
+          PEVT_VARIANT pVal = (PEVT_VARIANT)buf.data();
+          if (pVal->Type == EvtVarTypeEvtHandle)
+            hArray = pVal->EvtHandleVal;
+        }
+      }
+      if (hArray) {
+        DWORD size = 0;
+        if (EvtGetObjectArraySize(hArray, &size)) {
+          for (DWORD i = 0; i < size; i++) {
+            UINT64 val = 0;
+            std::wstring name;
+            DWORD pUsed = 0;
+            // Value
+            if (!EvtGetObjectArrayProperty(hArray, i, valId, 0, 0, NULL,
+                                           &pUsed) &&
+                GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+              std::vector<BYTE> vBuf(pUsed);
+              if (EvtGetObjectArrayProperty(hArray, i, valId, 0, pUsed,
+                                            (PEVT_VARIANT)vBuf.data(),
+                                            &pUsed)) {
+                PEVT_VARIANT p = (PEVT_VARIANT)vBuf.data();
+                if (p->Type == EvtVarTypeUInt32)
+                  val = p->UInt32Val;
+                else if (p->Type == EvtVarTypeUInt64)
+                  val = p->UInt64Val;
+              }
+            }
+            // Name
+            pUsed = 0;
+            if (!EvtGetObjectArrayProperty(hArray, i, nameId, 0, 0, NULL,
+                                           &pUsed) &&
+                GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+              std::vector<BYTE> nBuf(pUsed);
+              if (EvtGetObjectArrayProperty(hArray, i, nameId, 0, pUsed,
+                                            (PEVT_VARIANT)nBuf.data(),
+                                            &pUsed)) {
+                PEVT_VARIANT p = (PEVT_VARIANT)nBuf.data();
+                if (p->Type == EvtVarTypeString)
+                  name = p->StringVal;
+              }
+            }
+            if (!name.empty())
+              res[val] = name;
+          }
+        }
+        // Note: hArray is owned by hPublisher? No, usually separate. But
+        // EvtGetPublisherMetadataProperty returns variant with handle. Docs
+        // say: "You must call the EvtClose function to close the handle when
+        // you are done."
+        EvtClose(hArray);
+      }
+      return res;
+    };
+
+    // Need cast? IDs are generic enum.
+    std::map<UINT64, std::wstring> kRaw =
+        LoadMap(EvtPublisherMetadataKeywords, EvtPublisherMetadataKeywordValue,
+                EvtPublisherMetadataKeywordName);
+    keywordMap = kRaw;
+
+    std::map<UINT64, std::wstring> oRaw =
+        LoadMap(EvtPublisherMetadataOpcodes, EvtPublisherMetadataOpcodeValue,
+                EvtPublisherMetadataOpcodeName);
+    for (auto &p : oRaw)
+      opcodeMap[(UINT32)p.first] = p.second;
+
+    std::map<UINT64, std::wstring> tRaw =
+        LoadMap(EvtPublisherMetadataTasks, EvtPublisherMetadataTaskValue,
+                EvtPublisherMetadataTaskName);
+    for (auto &p : tRaw)
+      taskMap[(UINT32)p.first] = p.second;
+  }
+
+  std::wstring json = L"[";
+  EVT_HANDLE hEnum = EvtOpenEventMetadataEnum(hMetadata, 0);
+  if (hEnum) {
+    EVT_HANDLE hEvent = NULL;
+    bool first = true;
+    while ((hEvent = EvtNextEventMetadata(hEnum, 0)) != NULL) {
+      DWORD dwBufferSize = 0;
+      DWORD dwBufferUsed = 0;
+
+      // Get ID
+      UINT64 eventId = 0;
+      DWORD dwValUsed = 0;
+      if (!EvtGetEventMetadataProperty(hEvent, EventMetadataEventID, 0, 0, NULL,
+                                       &dwValUsed) &&
+          GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+        std::vector<BYTE> valBuf(dwValUsed);
+        if (EvtGetEventMetadataProperty(hEvent, EventMetadataEventID, 0,
+                                        dwValUsed, (PEVT_VARIANT)valBuf.data(),
+                                        &dwValUsed)) {
+          PEVT_VARIANT pVal = (PEVT_VARIANT)valBuf.data();
+          if (pVal->Type == EvtVarTypeUInt32 ||
+              pVal->Type == EvtVarTypeUInt64) {
+            eventId = (pVal->Type == EvtVarTypeUInt32) ? pVal->UInt32Val
+                                                       : pVal->UInt64Val;
+          }
+        }
+      }
+
+      // Helper to get UInt32 property
+      auto GetUInt32Prop =
+          [&](EVT_EVENT_METADATA_PROPERTY_ID propId) -> UINT32 {
+        UINT32 val = 0;
+        DWORD bufUsed = 0;
+        if (!EvtGetEventMetadataProperty(hEvent, propId, 0, 0, NULL,
+                                         &bufUsed) &&
+            GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+          std::vector<BYTE> buf(bufUsed);
+          if (EvtGetEventMetadataProperty(hEvent, propId, 0, bufUsed,
+                                          (PEVT_VARIANT)buf.data(), &bufUsed)) {
+            PEVT_VARIANT pVal = (PEVT_VARIANT)buf.data();
+            if (pVal->Type == EvtVarTypeUInt32)
+              val = pVal->UInt32Val;
+          }
+        }
+        return val;
+      };
+
+      auto GetUInt64Prop =
+          [&](EVT_EVENT_METADATA_PROPERTY_ID propId) -> UINT64 {
+        UINT64 val = 0;
+        DWORD bufUsed = 0;
+        if (!EvtGetEventMetadataProperty(hEvent, propId, 0, 0, NULL,
+                                         &bufUsed) &&
+            GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+          std::vector<BYTE> buf(bufUsed);
+          if (EvtGetEventMetadataProperty(hEvent, propId, 0, bufUsed,
+                                          (PEVT_VARIANT)buf.data(), &bufUsed)) {
+            PEVT_VARIANT pVal = (PEVT_VARIANT)buf.data();
+            if (pVal->Type == EvtVarTypeUInt64)
+              val = pVal->UInt64Val;
+            else if (pVal->Type == EvtVarTypeUInt32)
+              val = pVal->UInt32Val;
+          }
+        }
+        return val;
+      };
+
+      UINT32 version = GetUInt32Prop(EventMetadataEventVersion);
+      UINT32 levelId = GetUInt32Prop(EventMetadataEventLevel);
+      UINT32 opcodeId = GetUInt32Prop(EventMetadataEventOpcode);
+      UINT32 taskId = GetUInt32Prop(EventMetadataEventTask);
+      UINT64 keywordMask = GetUInt64Prop(EventMetadataEventKeyword);
+
+      // Helper lambda for format message
+      auto GetFormatMessage = [&](DWORD flag) -> std::wstring {
+        std::wstring result = L"";
+        DWORD dwBufferSize = 0;
+        DWORD dwBufferUsed = 0;
+        if (!EvtFormatMessage(hMetadata, hEvent, 0, 0, NULL, flag, 0, NULL,
+                              &dwBufferSize)) {
+          if (GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+            std::vector<wchar_t> buf(dwBufferSize);
+            if (EvtFormatMessage(hMetadata, hEvent, 0, 0, NULL, flag,
+                                 dwBufferSize, buf.data(), &dwBufferUsed)) {
+              result = buf.data();
+            }
+          }
+        }
+        return result;
+      };
+
+      std::wstring description = GetFormatMessage(EvtFormatMessageEvent);
+      std::wstring levelStr = GetFormatMessage(EvtFormatMessageLevel);
+      std::wstring opcodeStr = GetFormatMessage(EvtFormatMessageOpcode);
+      std::wstring taskStr = GetFormatMessage(EvtFormatMessageTask);
+      std::wstring keyword = GetFormatMessage(EvtFormatMessageKeyword);
+
+      // Fallback Lookups
+      if (opcodeStr.empty() && opcodeMap.count(opcodeId))
+        opcodeStr = opcodeMap[opcodeId];
+      if (taskStr.empty() && taskMap.count(taskId))
+        taskStr = taskMap[taskId];
+
+      if (keyword.empty() && keywordMask != 0) {
+        for (auto const &pair : keywordMap) {
+          UINT64 mask = pair.first;
+          const std::wstring &name = pair.second;
+          if ((keywordMask & mask) == mask && mask != 0) {
+            if (!keyword.empty())
+              keyword += L" | ";
+            keyword += name;
+          }
+        }
+      }
+
+      if (!first)
+        json += L",";
+
+      json +=
+          L"{\"Id\":" + std::to_wstring(eventId) + L",\"Version\":" +
+          std::to_wstring(version) + L",\"Level\":" + std::to_wstring(levelId) +
+          L",\"LevelStr\":\"" + JsonEscape(levelStr) + L"\"" + L",\"Opcode\":" +
+          std::to_wstring(opcodeId) + L",\"OpcodeStr\":\"" +
+          JsonEscape(opcodeStr) + L"\"" + L",\"Task\":" +
+          std::to_wstring(taskId) + L",\"TaskStr\":\"" + JsonEscape(taskStr) +
+          L"\"" + L",\"Keyword\":\"" + JsonEscape(keyword) + L"\"" +
+          L",\"Description\":\"" + JsonEscape(description) + L"\"}";
+      first = false;
+
+      EvtClose(hEvent);
+    }
+    EvtClose(hEnum);
+  }
+  EvtClose(hMetadata);
+  json += L"]";
+  return json;
+}
+
+void ETWWorker::SetProviderFilter(const std::wstring &providerGuid,
+                                  const std::vector<unsigned short> &eventIds) {
+  GUID guid;
+  if (UuidFromStringW((RPC_WSTR)providerGuid.c_str(), &guid) != RPC_S_OK) {
+    std::wcerr << L"Invalid Provider GUID for filter: " << providerGuid
+               << std::endl;
+    return;
+  }
+
+  // If IDs are empty, we want to clear the filter.
+  // Passing NULL filter to EnableTraceEx2 clears it?
+  // Or do we need to Enable without params.
+  // We will re-enable the provider with (or without) filter parameters.
+
+  if (eventIds.empty()) {
+    // Enable without filters (clears them)
+    // Note: This assumes Level=VERBOSE (0) logic from EnableProvider.
+    // Ideally we track current level/keywords, but for now re-enabling with
+    // default is okay.
+    ULONG status = EnableTraceEx2(m_sessionHandle, &guid,
+                                  EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+                                  TRACE_LEVEL_VERBOSE, 0, 0, 0, NULL);
+    if (status == ERROR_SUCCESS) {
+      std::wcout << L"Cleared kernel filters for provider: " << providerGuid
+                 << std::endl;
+    } else {
+      std::wcerr << L"Failed to clear filters: " << status << std::endl;
+    }
+    return;
+  }
+
+  // Construct EVENT_FILTER_EVENT_ID
+  size_t filterSize =
+      sizeof(EVENT_FILTER_EVENT_ID) +
+      (eventIds.size() > 0 ? (eventIds.size() - 1) : 0) * sizeof(USHORT);
+  // Actually, align usage:
+  // Offset of 'Events' is where array starts.
+  // But definition is USHORT Events[ANYSIZE_ARRAY].
+  // Safe calculation:
+  filterSize = offsetof(EVENT_FILTER_EVENT_ID, Events) +
+               eventIds.size() * sizeof(USHORT);
+
+  std::vector<BYTE> buffer(filterSize);
+  PEVENT_FILTER_EVENT_ID pFilter = (PEVENT_FILTER_EVENT_ID)buffer.data();
+
+  pFilter->FilterIn = TRUE;
+  pFilter->Reserved = 0;
+  pFilter->Count = (USHORT)eventIds.size();
+  for (size_t i = 0; i < eventIds.size(); ++i) {
+    pFilter->Events[i] = eventIds[i];
+  }
+
+  EVENT_FILTER_DESCRIPTOR filterDesc;
+  ZeroMemory(&filterDesc, sizeof(filterDesc));
+  filterDesc.Ptr = (ULONGLONG)pFilter;
+  filterDesc.Size = (ULONG)filterSize;
+  filterDesc.Type = EVENT_FILTER_TYPE_EVENT_ID;
+
+  ENABLE_TRACE_PARAMETERS params;
+  ZeroMemory(&params, sizeof(params));
+  params.Version = ENABLE_TRACE_PARAMETERS_VERSION_2;
+  params.EnableProperty = 0;
+  params.ControlFlags = 0;
+  params.SourceId = guid; // Not strictly used for normal enable?
+  params.EnableFilterDesc = &filterDesc;
+  params.FilterDescCount = 1;
+
+  ULONG status =
+      EnableTraceEx2(m_sessionHandle, &guid, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+                     TRACE_LEVEL_VERBOSE, 0, 0, 0, &params);
+
+  if (status == ERROR_SUCCESS) {
+    std::wcout << L"Applied kernel filter (" << eventIds.size()
+               << L" events) for: " << providerGuid << std::endl;
+  } else {
+    std::wcerr << L"Failed to apply kernel filter: " << status << std::endl;
+  }
+}
+
 void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   if (m_hPipe == INVALID_HANDLE_VALUE) {
     // Re-attempt connection to relay
@@ -215,6 +580,11 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   // Filter headers?
   if (IsEqualGUID(pEvent->EventHeader.ProviderId, EventTraceGuid))
     return; // Skip meta events if unwanted
+
+  // --- FILTERING CHECK ---
+  // Kernel now handles filtering! We just process what we receive.
+  // We hold lock for Cache Access
+  std::lock_guard<std::mutex> lock(m_stateMutex);
 
   // 1. Define Cache Key
   EventKey key;
@@ -270,15 +640,16 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
             props.push_back(meta);
           }
           m_schemaCache[key] = props;
-          it = m_schemaCache.find(key); // Refresh iterator
+          it = m_schemaCache.find(key); // Refresh iterator after insert
         }
         free(pInfo);
       }
     }
+  }
 
-    if (it == m_schemaCache.end()) {
-      return;
-    }
+  // If still not found (TDH failed), we can't parse payload
+  if (it == m_schemaCache.end()) {
+    return;
   }
 
   // 3. Hot Path Parsing (JSON serialization)

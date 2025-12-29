@@ -5,45 +5,81 @@ import (
 	"fmt"
 	"log" // Added log for errors
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 )
 
 type ProviderInfo struct {
-	Name    string `json:"name"`
-	GUID    string `json:"guid"`
-	Enabled bool   `json:"enabled"`
+	Name     string      `json:"name"`
+	GUID     string      `json:"guid"`
+	Enabled  bool        `json:"enabled"`
+	Metadata interface{} `json:"metadata,omitempty"`
 }
 
 type ProviderResolver struct {
-	mu        sync.RWMutex
-	providers map[string]string // GUID -> Name
+	mu            sync.RWMutex
+	providers     map[string]string      // GUID -> Name
+	metadataCache map[string]interface{} // GUID -> Metadata (New)
 }
 
-func NewProviderResolver(configPath string) *ProviderResolver {
+func NewProviderResolver(configFilename string) *ProviderResolver {
 	pr := &ProviderResolver{
-		providers: make(map[string]string),
+		providers:     make(map[string]string),
+		metadataCache: make(map[string]interface{}),
+	}
+	// ... (rest of NewProviderResolver logic is same but need to preserve it. Wait, replace_file_content replaces chunks. I should replace struct def and NewProviderResolver init lines)
+
+	// Search paths:
+	// 1. Current directory
+	// 2. ./go_relay/ (if running from root)
+	// 3. ../go_relay/ (if running from bin?)
+	paths := []string{
+		configFilename,
+		filepath.Join(".", "go_relay", configFilename),
+		filepath.Join("..", "go_relay", configFilename),
 	}
 
-	// Load from JSON
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		log.Printf("Warning: Failed to read %s: %v", configPath, err)
+	var content []byte
+	var loadedPath string
+	var err error
+
+	for _, p := range paths {
+		content, err = os.ReadFile(p)
+		if err == nil {
+			loadedPath = p
+			break
+		}
+	}
+
+	if loadedPath == "" {
+		log.Printf("Error: Could not find %s in any of the search paths: %v", configFilename, paths)
 		return pr
 	}
 
+	log.Printf("Loading providers configuration from: %s", loadedPath)
+
 	var list []ProviderInfo
 	if err := json.Unmarshal(content, &list); err != nil {
-		log.Printf("Warning: Failed to parse %s: %v", configPath, err)
+		log.Printf("Error: Failed to parse %s: %v", loadedPath, err)
 		return pr
 	}
 
 	for _, p := range list {
 		guid := strings.ToUpper(strings.Trim(p.GUID, "{}"))
 		pr.providers[guid] = p.Name
+		log.Printf("Loaded Provider: %s (%s)", p.Name, guid)
 	}
+	log.Printf("Total Providers Loaded: %d", len(pr.providers))
 
 	return pr
+}
+
+func (pr *ProviderResolver) UpdateMetadata(guid string, metadata interface{}) {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+	cleanGUID := strings.ToUpper(strings.Trim(guid, "{}"))
+	pr.metadataCache[cleanGUID] = metadata
 }
 
 func (pr *ProviderResolver) GetName(guid string) string {
@@ -64,10 +100,14 @@ func (pr *ProviderResolver) GetAll() []ProviderInfo {
 
 	list := make([]ProviderInfo, 0, len(pr.providers))
 	for guid, name := range pr.providers {
-		list = append(list, ProviderInfo{
+		info := ProviderInfo{
 			Name: name,
 			GUID: "{" + guid + "}",
-		})
+		}
+		if meta, ok := pr.metadataCache[guid]; ok {
+			info.Metadata = meta
+		}
+		list = append(list, info)
 	}
 	return list
 }

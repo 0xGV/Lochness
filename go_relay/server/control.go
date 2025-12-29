@@ -3,19 +3,18 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
-	"strings"
+	"strings" // Added for path splitting
 	"sync"
+	"time"
 )
 
 type ControlServer struct {
 	Storage  *Storage
 	Resolver *ProviderResolver
-	// We need a way to send commands to C++.
-	// "Implement Control Pipe Client (Sender)"
-	// The C++ agent will listen on \\.\pipe\etw_control
 	PipePath string
 	mu       sync.Mutex
 	Enabled  map[string]bool
@@ -35,6 +34,47 @@ type ProviderConfig struct {
 	Provider string `json:"provider"` // GUID string
 }
 
+// sendCommand handles opening the pipe, writing the request, and reading the response.
+// responseDst can be a pointer to a struct/slice to unmarshal JSON into, or nil to just return raw string if needed,
+// but for now we'll assume we return raw bytes so the caller can decide.
+func (cs *ControlServer) sendCommand(req interface{}) ([]byte, error) {
+	f, err := os.OpenFile(cs.PipePath, os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open control pipe: %v", err)
+	}
+	defer f.Close()
+
+	bytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %v", err)
+	}
+
+	if _, err := f.Write(bytes); err != nil {
+		return nil, fmt.Errorf("failed to write to pipe: %v", err)
+	}
+
+	// Read Response
+	// We need to read enough. The C++ agent uses a 4KB buffer for reading commands,
+	// but for writing metadata responses it could be large.
+	// We should read until EOF or a reasonable limit.
+	// Since it's a pipe, and C++ writes and then closes (or disconnects), we can readall.
+
+	respBuf, err := io.ReadAll(f)
+	if err != nil {
+		// On Windows, a pipe disconnect (which C++ does) often returns "No process is on the other end of the pipe" (ERROR_BROKEN_PIPE).
+		// If we got some data, we should consider it a success/EOF.
+		if len(respBuf) > 0 {
+			// Check for specific error message or type if we want to be pedantic,
+			// but relying on "got data" + "error" is a reasonable heuristic for this pipe pattern.
+			// Specifically, syscall.Errno 109 is ERROR_BROKEN_PIPE.
+			return respBuf, nil
+		}
+		return nil, fmt.Errorf("failed to read response: %v", err)
+	}
+
+	return respBuf, nil
+}
+
 func (cs *ControlServer) HandleConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", 405)
@@ -47,37 +87,14 @@ func (cs *ControlServer) HandleConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Send to C++ Agent
-	// We open the pipe, write, close. (Or keep open).
-	// Simple command mode: Open, Write, Close.
-
-	f, err := os.OpenFile(cs.PipePath, os.O_RDWR, 0600) // This only works if C++ created it.
-	// Go's os.OpenFile might not work for Named Pipes seamlessly without special flags on Windows?
-	// Actually it works if the pipe exists.
-
+	resp, err := cs.sendCommand(config)
 	if err != nil {
-		// If pipe not found, maybe C++ isn't running.
-		// Try syscall if os.OpenFile fails? os.OpenFile usually works for \\.\pipe\.
-		log.Printf("Failed to open control pipe: %v", err)
-		http.Error(w, fmt.Sprintf("Agent unavailable: %v", err), 503)
-		return
-	}
-	defer f.Close()
-
-	// Write JSON command
-	bytes, _ := json.Marshal(config)
-	f.Write(bytes)
-
-	// Read Response
-	respBuf := make([]byte, 1024)
-	n, err := f.Read(respBuf)
-	if err != nil {
-		log.Printf("Failed to read ack: %v", err)
-		http.Error(w, "Command sent but no ack received", 502)
+		log.Printf("Control Error: %v", err)
+		http.Error(w, err.Error(), 503)
 		return
 	}
 
-	if n > 0 { // Assume success if we got an ack
+	if len(resp) > 0 {
 		cs.mu.Lock()
 		if config.Action == "Enable" {
 			cs.Enabled[config.Provider] = true
@@ -88,7 +105,7 @@ func (cs *ControlServer) HandleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(200)
-	w.Write(respBuf[:n])
+	w.Write(resp)
 }
 
 func (cs *ControlServer) HandleSearch(w http.ResponseWriter, r *http.Request) {
@@ -115,6 +132,7 @@ func (cs *ControlServer) HandleListProviders(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(providers)
 }
+
 func (cs *ControlServer) HandleFlush(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", 405)
@@ -123,4 +141,138 @@ func (cs *ControlServer) HandleFlush(w http.ResponseWriter, r *http.Request) {
 	cs.Storage.Flush()
 	w.WriteHeader(200)
 	w.Write([]byte("Cache flushed successfully"))
+}
+
+// GET /api/providers/{guid}/events
+func (cs *ControlServer) HandleGetEvents(w http.ResponseWriter, r *http.Request) {
+	// Parse GUID from URL Path
+	// Path expected: /api/providers/{guid}/events
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 4 {
+		http.Error(w, "Invalid path", 400)
+		return
+	}
+	guid := parts[3] // [ "", "api", "providers", "{guid}", "events"] ??
+	// parts: ["", "api", "providers", "GUID", "events"] -> index 3 is GUID.
+
+	name := r.URL.Query().Get("name")
+
+	cmd := map[string]interface{}{
+		"Action":   "GetMetadata",
+		"Provider": guid,
+		"Name":     name,
+	}
+
+	resp, err := cs.sendCommand(cmd)
+	if err != nil {
+		http.Error(w, err.Error(), 503)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+type FilterRequest struct {
+	EventIds []int `json:"event_ids"`
+}
+
+// POST /api/providers/{guid}/filters
+func (cs *ControlServer) HandleSetFilters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 4 {
+		http.Error(w, "Invalid path", 400)
+		return
+	}
+	guid := parts[3]
+
+	var req FilterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad Request", 400)
+		return
+	}
+
+	cmd := map[string]interface{}{
+		"Action":   "SetFilter",
+		"Provider": guid,
+		"EventIds": req.EventIds,
+	}
+
+	resp, err := cs.sendCommand(cmd)
+	if err != nil {
+		http.Error(w, err.Error(), 503)
+		return
+	}
+
+	w.WriteHeader(200)
+	w.Write(resp)
+}
+
+// HydrateAllMetadata fetches metadata for all known providers from the C++ agent.
+// This should be run in a background goroutine.
+func (cs *ControlServer) HydrateAllMetadata() {
+	log.Println("Starting background metadata hydration...")
+
+	// 1. Wait for Control Pipe to be available (Agent started)
+	// Timeout after 30 seconds
+	ready := false
+	for i := 0; i < 30; i++ {
+		if _, err := os.Stat(cs.PipePath); err == nil {
+			ready = true
+			break
+		}
+		// Also try opening just in case Stat behaves weird on pipes (it usually works for existence)
+		// But simpler to just wait.
+		time.Sleep(1 * time.Second)
+	}
+
+	if !ready {
+		log.Printf("Hydration Aborted: Control pipe %s not found after waiting. Is the Agent running?", cs.PipePath)
+		return
+	}
+
+	providers := cs.Resolver.GetAll()
+
+	for _, p := range providers {
+		// Construct GetMetadata command
+		guid := p.GUID
+		// Ensure braces if missing (though GetAll adds them)
+		if !strings.HasPrefix(guid, "{") {
+			guid = "{" + guid + "}"
+		}
+
+		cmd := map[string]interface{}{
+			"Action":   "GetMetadata",
+			"Provider": guid,
+			"Name":     p.Name, // Send Name for better resolution
+		}
+
+		// Send Command
+		// We might still fail if agent crashes or disconnects, so slight retry or just ignore error
+		resp, err := cs.sendCommand(cmd)
+		if err != nil {
+			log.Printf("Failed to hydrate metadata for %s: %v", p.Name, err)
+			continue
+		}
+
+		// Parse Response (JSON Array of Events)
+		var metadata []interface{}
+		if err := json.Unmarshal(resp, &metadata); err != nil {
+			log.Printf("Failed to parse metadata for %s: %v", p.Name, err)
+			continue
+		}
+
+		// Update Resolver
+		cs.Resolver.UpdateMetadata(p.GUID, metadata)
+		log.Printf("Hydrated %d events for %s", len(metadata), p.Name)
+
+		// Small sleep to avoid choking the pipe?
+		time.Sleep(50 * time.Millisecond)
+	}
+	log.Println("Metadata hydration completed.")
 }

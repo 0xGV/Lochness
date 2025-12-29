@@ -24,7 +24,8 @@ void ControlLoop(ETWWorker *worker) {
   // Create Named Pipe Server for Control
   HANDLE hPipe = CreateNamedPipeW(
       L"\\\\.\\pipe\\etw_control", PIPE_ACCESS_DUPLEX,
-      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 1024, 1024, 0, &sa);
+      PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 1024 * 1024,
+      1024 * 1024, 0, &sa); // Increased buffer size for metadata
 
   if (hPipe == INVALID_HANDLE_VALUE) {
     DWORD err = GetLastError();
@@ -35,20 +36,38 @@ void ControlLoop(ETWWorker *worker) {
   cout << ">>> Control interface ready at \\\\.\\pipe\\etw_control" << endl;
 
   while (true) {
-    if (ConnectNamedPipe(hPipe, NULL) != FALSE) {
-      char buffer[1024];
+    bool connected = ConnectNamedPipe(hPipe, NULL)
+                         ? true
+                         : (GetLastError() == ERROR_PIPE_CONNECTED);
+
+    if (connected) {
+      char buffer[4096]; // Increased read buffer
       DWORD bytesRead;
       if (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
         buffer[bytesRead] = '\0';
         string cmd(buffer);
 
-        // Flexible parsing for "Action" and "Provider"
+        // Simple parsing logic (Parsing manually to avoid new deps)
+        // Expected commands:
+        // 1. {"Action":"Enable", "Provider":"{GUID}"}
+        // 2. {"Action":"Disable", "Provider":"{GUID}"}
+        // 3. {"Action":"GetMetadata", "Provider":"{GUID}"}
+        // 4. {"Action":"SetFilter", "Provider":"{GUID}", "EventIds":[1,2,3]}
+
+        string response = "ACK";
         bool enable = (cmd.find("Enable") != string::npos ||
                        cmd.find("enable") != string::npos);
+        bool disable = (cmd.find("Disable") != string::npos ||
+                        cmd.find("disable") != string::npos);
+        bool getMeta = (cmd.find("GetMetadata") != string::npos);
+        bool setFilter = (cmd.find("SetFilter") != string::npos);
 
-        // Find GUID - look for any string that looks like a GUID after
-        // "provider"
-        size_t pPos = cmd.find("provider");
+        // Extract GUID
+        string guid;
+        size_t pPos = cmd.find("Provider");
+        if (pPos == string::npos)
+          pPos = cmd.find("provider");
+
         if (pPos != string::npos) {
           size_t valStart = cmd.find(":", pPos);
           if (valStart != string::npos) {
@@ -56,22 +75,84 @@ void ControlLoop(ETWWorker *worker) {
             if (quoteStart != string::npos) {
               size_t quoteEnd = cmd.find("\"", quoteStart + 1);
               if (quoteEnd != string::npos) {
-                string guid =
-                    cmd.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
-                wstring wguid(guid.begin(), guid.end());
-
-                if (enable) {
-                  worker->EnableProvider(wguid);
-                } else {
-                  worker->DisableProvider(wguid);
-                }
+                guid = cmd.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
               }
             }
           }
         }
 
+        // Extract Name
+        string name = "";
+        size_t nPos = cmd.find("\"Name\""); // "Name": "..."
+        if (nPos != string::npos) {
+          size_t valStart = cmd.find(":", nPos);
+          if (valStart != string::npos) {
+            size_t quoteStart = cmd.find("\"", valStart);
+            if (quoteStart != string::npos) {
+              size_t quoteEnd = cmd.find("\"", quoteStart + 1);
+              if (quoteEnd != string::npos) {
+                name = cmd.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+              }
+            }
+          }
+        }
+
+        wstring wguid(guid.begin(), guid.end());
+        wstring wname(name.begin(), name.end());
+
+        if (!guid.empty()) {
+          if (enable) {
+            worker->EnableProvider(wguid);
+          } else if (disable) {
+            worker->DisableProvider(wguid);
+          } else if (getMeta) {
+            std::cout << "Getting metadata for " << guid << " (" << name << ")"
+                      << std::endl;
+            wstring wJson = worker->GetProviderMetadata(wguid, wname);
+            // Convert wide back to string for pipe response
+            int len = WideCharToMultiByte(CP_UTF8, 0, wJson.c_str(), -1, NULL,
+                                          0, NULL, NULL);
+            if (len > 0) {
+              response.resize(len - 1); // ex. null
+              WideCharToMultiByte(CP_UTF8, 0, wJson.c_str(), -1, &response[0],
+                                  len, NULL, NULL);
+            } else {
+              response = "[]";
+            }
+          } else if (setFilter) {
+            // Parse Event IDs array: "EventIds":[1, 2, 3]
+            vector<unsigned short> ids;
+            size_t idsPos = cmd.find("EventIds");
+            if (idsPos != string::npos) {
+              size_t arrayStart = cmd.find("[", idsPos);
+              size_t arrayEnd = cmd.find("]", idsPos);
+              if (arrayStart != string::npos && arrayEnd != string::npos) {
+                string arrStr =
+                    cmd.substr(arrayStart + 1, arrayEnd - arrayStart - 1);
+                size_t start = 0, end = 0;
+                while ((end = arrStr.find(",", start)) != string::npos) {
+                  try {
+                    ids.push_back((unsigned short)stoi(
+                        arrStr.substr(start, end - start)));
+                  } catch (...) {
+                  }
+                  start = end + 1;
+                }
+                try {
+                  ids.push_back((unsigned short)stoi(arrStr.substr(start)));
+                } catch (...) {
+                }
+              }
+            }
+            worker->SetProviderFilter(wguid, ids);
+          }
+        }
+
         DWORD written;
-        WriteFile(hPipe, "ACK", 3, &written, NULL);
+        WriteFile(hPipe, response.c_str(), (DWORD)response.length(), &written,
+                  NULL);
+        FlushFileBuffers(
+            hPipe); // Ensure client receives data before disconnect
       }
       DisconnectNamedPipe(hPipe);
     } else {

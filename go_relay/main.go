@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"lochness/server"
@@ -36,10 +37,36 @@ func main() {
 	controlPipePath := `\\.\pipe\etw_control`
 	control := server.NewControlServer(store, resolver, controlPipePath)
 
+	// Start metadata hydration in background
+	// Give C++ agent a moment to connect if we just started
+	go func() {
+		time.Sleep(2 * time.Second)
+		control.HydrateAllMetadata()
+	}()
+
 	// 4. Setup HTTP API
 	http.HandleFunc("/events/search", control.HandleSearch)
 	http.HandleFunc("/config/providers", control.HandleConfig)
 	http.HandleFunc("/api/providers", control.HandleListProviders)
+
+	// Dynamic Handler for /api/providers/{guid}/...
+	http.HandleFunc("/api/providers/", func(w http.ResponseWriter, r *http.Request) {
+		// Precise path matching logic
+		if r.URL.Path == "/api/providers" || r.URL.Path == "/api/providers/" {
+			control.HandleListProviders(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/events") {
+			control.HandleGetEvents(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/filters") {
+			control.HandleSetFilters(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	http.HandleFunc("/events/flush", control.HandleFlush)
 
 	// 5. Serve Static UI

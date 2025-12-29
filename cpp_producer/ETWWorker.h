@@ -12,9 +12,11 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #pragma comment(lib, "tdh.lib")
@@ -73,6 +75,11 @@ public:
   void EnableProvider(const std::wstring &providerGuid);
   void DisableProvider(const std::wstring &providerGuid);
 
+  std::wstring GetProviderMetadata(const std::wstring &providerGuid,
+                                   const std::wstring &providerName = L"");
+  void SetProviderFilter(const std::wstring &providerGuid,
+                         const std::vector<unsigned short> &eventIds);
+
   // Connect to the data pipe (Go Server)
   bool ConnectPipe(const std::wstring &pipeName);
 
@@ -97,4 +104,7 @@ private:
       m_schemaCache;
   std::unordered_map<EventKey, std::wstring, EventKeyHash>
       m_eventNameCache; // Optional: cache event names
+
+  // Cache Protection
+  mutable std::mutex m_stateMutex;
 };

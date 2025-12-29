@@ -657,7 +657,7 @@
                 <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
             </div>
 
-            <div id="view-toggle" onclick="toggleViewControls()" title="View Settings">
+            <div id="view-toggle" onclick="toggleViewControls(event)" title="View Settings">
                 <div style="font-size: 20px; line-height: 1;">👁</div>
             </div>
 
@@ -681,7 +681,7 @@
                 <div class="flush-btn" onclick="flushCache()">FLUSH CACHE BUFFER</div>
             </div>
 
-            <div id="controls">
+            <div id="controls" onclick="event.stopPropagation()">
                 <button class="btn" onclick="resetZoom()">Reset Vision</button>
                 <button class="btn" onclick="setZoomLevel(1)">Lv 1 (3m)</button>
                 <button class="btn" onclick="setZoomLevel(2)">Lv 2 (10m)</button>
@@ -740,6 +740,55 @@
                             onclick="closeTelescope(event)">Abort View</button>
                     </div>
                     <div id="telescope-standalone-content" style="overflow-y:auto; padding-top:10px;"></div>
+                </div>
+            </div>
+
+            <!-- Advanced Settings Modal -->
+            <div id="advanced-settings-overlay" onclick="closeAdvancedSettings()"
+                style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9000; justify-content:center; align-items:center;">
+                <div id="advanced-settings-window" onclick="event.stopPropagation()"
+                    style="width:800px; height:80vh; background:#111; border:2px solid var(--accent-cyan); display:flex; flex-direction:column; padding:20px; box-shadow:0 0 50px rgba(0,243,255,0.2);">
+                    <div
+                        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:15px; margin-bottom:15px;">
+                        <span id="adv-settings-title"
+                            style="color:var(--accent-cyan); font-size:1.2rem; font-weight:bold;">PROVIDER
+                            SETTINGS</span>
+                        <button class="btn" onclick="closeAdvancedSettings()">CLOSE</button>
+                    </div>
+
+                    <div style="flex:1; overflow-y:auto; margin-bottom:20px;">
+                        <div style="margin-bottom:15px; color:#aaa; font-size:0.9rem;">
+                            Event Filtering: Select events to capture. Deselect to ignore.
+                            <br>
+                            <span style="font-size:0.8rem; color:#666;">Note: If no events are selected (or filter
+                                cleared), ALL events are captured.</span>
+                        </div>
+                        <div id="adv-settings-content">
+                            <table style="width:100%; border-collapse:collapse; color:#ccc; font-size:0.85rem;">
+                                <thead>
+                                    <tr
+                                        style="text-align:left; border-bottom:1px solid #444; color:var(--accent-magenta);">
+                                        <th style="padding:8px;"><input type="checkbox" id="adv-select-all"
+                                                onchange="toggleAllEvents(this.checked)"></th>
+                                        <th style="padding:8px;">ID</th>
+                                        <th style="padding:8px;">Ver</th>
+                                        <th style="padding:8px;">Level</th>
+                                        <th style="padding:8px;">Keyword</th>
+                                        <th style="padding:8px;">Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="adv-event-list"></tbody>
+                            </table>
+                            <div id="adv-loading" style="text-align:center; padding:20px; color:var(--accent-cyan);">
+                                Loading metadata...</div>
+                        </div>
+                    </div>
+
+                    <div style="display:flex; justify-content:flex-end; gap:10px;">
+                        <button class="btn" style="border-color:#666; color:#aaa;" onclick="clearFilters()">CLEAR FILTER
+                            (ALLOW ALL)</button>
+                        <button class="btn" onclick="applyAdvancedSettings()">APPLY CHANGES</button>
+                    </div>
                 </div>
             </div>
 
@@ -802,10 +851,19 @@
             }
         }
 
-        function toggleViewControls() {
+        function toggleViewControls(event) {
+            if (event) event.stopPropagation();
             const controls = document.getElementById('controls');
             controls.classList.toggle('open');
         }
+
+        // Close View Controls on outside click
+        window.addEventListener('click', () => {
+            const controls = document.getElementById('controls');
+            if (controls.classList.contains('open')) {
+                controls.classList.remove('open');
+            }
+        });
 
         function toggleMultiSelectMode() {
             isMultiSelectMode = !isMultiSelectMode;
@@ -872,10 +930,13 @@
                         <span style="font-size:0.7rem; color:${isEnabled ? 'var(--accent-green)' : '#666'};">
                             ${isEnabled ? 'ACTIVE' : 'DISABLED'}
                         </span>
-                        <label class="switch">
-                            <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleProvider('${guid}', this.checked)">
-                            <span class="slider"></span>
-                        </label>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <button class="btn" style="padding:2px 8px; font-size:12px; border:1px solid #444; color:#888;" onclick="openAdvancedSettings('${guid}', '${p.name}')" title="Advanced Settings">⚙</button>
+                            <label class="switch">
+                                <input type="checkbox" ${isEnabled ? 'checked' : ''} onchange="toggleProvider('${guid}', this.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
                     </div>
                 `;
                 providerList.appendChild(item);
@@ -922,6 +983,177 @@
                 console.error("Flush failed", err);
             }
         }
+
+        // Global state for active filters
+        let activeFilters = new Map(); // GUID -> Array<EventID>
+
+        let currentSettingsGuid = null;
+        let pMetadata = [];
+
+        function openAdvancedSettings(guid, name) {
+            currentSettingsGuid = guid;
+            document.getElementById('adv-settings-title').innerText = name.toUpperCase() + " // CONFIG";
+            document.getElementById('advanced-settings-overlay').style.display = 'flex';
+            document.getElementById('adv-event-list').innerHTML = '';
+            document.getElementById('adv-loading').style.display = 'block';
+
+            fetchProviderEvents(guid);
+        }
+
+        function closeAdvancedSettings() {
+            document.getElementById('advanced-settings-overlay').style.display = 'none';
+            currentSettingsGuid = null;
+        }
+
+        async function fetchProviderEvents(guid) {
+            try {
+                let formatted = guid;
+                if (!formatted.startsWith('{')) formatted = '{' + formatted + '}';
+
+                // Get Name from map if available
+                const cleanGuid = guid.replace(/[{}]/g, '').toUpperCase();
+                const pInfo = providersMap.get(cleanGuid);
+                const pName = pInfo ? pInfo.name : "";
+
+                console.log(`Fetching events for: ${formatted} (${pName})`);
+
+                const resp = await fetch(`/api/providers/${formatted}/events?name=${encodeURIComponent(pName)}`);
+                if (!resp.ok) {
+                    const txt = await resp.text();
+                    throw new Error(`Failed to fetch events (${resp.status}): ${txt}`);
+                }
+
+                const data = await resp.json();
+                pMetadata = data; // Store globally for this session
+
+                // Get currently active filters for this provider
+                const currentFilters = activeFilters.get(cleanGuid);
+
+                renderAdvancedTable(data, currentFilters);
+            } catch (err) {
+                console.error("Fetch error details:", err);
+                document.getElementById('adv-loading').innerText = "Error: " + err.message;
+            }
+        }
+
+        function renderAdvancedTable(data, currentFilters) {
+            const tbody = document.getElementById('adv-event-list');
+            tbody.innerHTML = '';
+            document.getElementById('adv-loading').style.display = 'none';
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;">No event metadata found (or provider not active/manifest missing).</td></tr>';
+                return;
+            }
+
+            data.sort((a, b) => a.Id - b.Id);
+
+            data.forEach(e => {
+                // Determine checked state
+                let isChecked = true;
+                if (currentFilters && Array.isArray(currentFilters)) {
+                    isChecked = currentFilters.includes(e.Id);
+                }
+
+                // Level Mapping (Use LevelStr if available, else map Level int)
+                let displayLevel = e.LevelStr;
+                if (!displayLevel || !isNaN(displayLevel)) {
+                    const l = e.Level;
+                    if (l == 1) displayLevel = "Critical";
+                    else if (l == 2) displayLevel = "Error";
+                    else if (l == 3) displayLevel = "Warning";
+                    else if (l == 4) displayLevel = "Information";
+                    else if (l == 5) displayLevel = "Verbose";
+                    else displayLevel = l;
+                }
+
+                let displayOpcode = e.OpcodeStr || e.Opcode || '-';
+                let displayTask = e.TaskStr || e.Task || '-';
+
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #222';
+                tr.innerHTML = `
+                    <td style="padding:8px;"><input type="checkbox" class="adv-checkbox" value="${e.Id}" ${isChecked ? 'checked' : ''}></td>
+                    <td style="padding:8px; color:var(--accent-cyan); font-family:monospace;">${e.Id}</td>
+                    <td style="padding:8px;">${e.Version}</td>
+                    <td style="padding:8px;">${displayLevel}</td>
+                    <td style="padding:8px;">${displayOpcode}</td>
+                    <td style="padding:8px;">${displayTask}</td>
+                    <td style="padding:8px; color:#888;">${e.Keyword || '-'}</td>
+                    <td style="padding:8px; color:#aaa;">${e.Description || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function toggleAllEvents(checked) {
+            document.querySelectorAll('.adv-checkbox').forEach(cb => cb.checked = checked);
+        }
+
+        function clearFilters() {
+            // In my design, sending empty list CLEARS filters (allows ALL).
+            // Visual indication? Uncheck all? Or maybe "Check All" implies allow all?
+            // Confusion: 
+            // Logic: "If filters exist, ONLY allow set."
+            // So clearing filters means deleting the set in C++, allowing ALL.
+            // Visual: If I "Clear Filter", I should probably uncheck everything to show "Nothing specifically selected" 
+            // OR check everything to show "Everything allowed"?
+            // Let's treat "Clear Filter" as "Switch to ALLOW ALL mode", which is effectively sending empty list.
+            // I'll call apply with empty list.
+
+            if (confirm("Confirm: Clear all filters for this provider? This will capture ALL events.")) {
+                applyFiltersConfirm([]);
+            }
+        }
+
+        async function applyAdvancedSettings() {
+            // Collect checked IDs
+            const checked = [];
+            document.querySelectorAll('.adv-checkbox:checked').forEach(cb => {
+                checked.push(parseInt(cb.value));
+            });
+
+            if (checked.length === 0) {
+                if (!confirm("No events selected. This will CLEAR filters and capture ALL events. Proceed?")) return;
+            }
+
+            applyFiltersConfirm(checked);
+        }
+
+        async function applyFiltersConfirm(ids) {
+            if (!currentSettingsGuid) return;
+            // Ensure proper GUID formatting or stripping for map keys
+            const cleanKey = currentSettingsGuid.replace(/[{}]/g, '').toUpperCase();
+
+            let formatted = currentSettingsGuid;
+
+            try {
+                const resp = await fetch(`/api/providers/${formatted}/filters`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_ids: ids })
+                });
+
+                if (resp.ok) {
+                    alert("Filters applied successfully.");
+
+                    // Update Cache
+                    if (ids.length === 0) {
+                        activeFilters.delete(cleanKey);
+                    } else {
+                        activeFilters.set(cleanKey, ids);
+                    }
+
+                    closeAdvancedSettings();
+                } else {
+                    alert("Failed to apply filters.");
+                }
+            } catch (e) {
+                console.error(e);
+                alert("Error applying filters.");
+            }
+        }
+
 
         // View State
         let timeRange = 30 * 60 * 1000; // 30 minutes in ms
