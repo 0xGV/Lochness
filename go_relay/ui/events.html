@@ -357,21 +357,22 @@
         /* PAGINATION option 2 */
         .pagination-grid {
             display: flex;
-            gap: 5px;
+            gap: 3px;
             align-items: center;
-            justify-content: center;
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.8);
+            justify-content: flex-end;
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.9);
             border-top: 1px solid var(--term-green);
         }
 
         .pg-cell {
             border: 1px solid var(--term-dim);
-            padding: 5px 10px;
+            padding: 2px 6px;
             cursor: pointer;
             transition: all 0.2s;
             color: var(--term-green);
             font-weight: bold;
+            font-size: 0.7rem;
         }
 
         .pg-cell:hover:not(.disabled) {
@@ -392,9 +393,10 @@
 
         .pg-arrow {
             cursor: pointer;
-            padding: 5px 10px;
+            padding: 2px 6px;
             color: var(--term-amber);
             font-weight: bold;
+            font-size: 0.7rem;
         }
 
         .pg-arrow.disabled {
