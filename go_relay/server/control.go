@@ -108,18 +108,45 @@ func (cs *ControlServer) HandleConfig(w http.ResponseWriter, r *http.Request) {
 	w.Write(resp)
 }
 
+type SearchResponse struct {
+	Events []Event `json:"events"`
+	Total  int     `json:"total"`
+	Page   int     `json:"page"`
+	Size   int     `json:"size"`
+}
+
 func (cs *ControlServer) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("query")
 	sinceStr := r.URL.Query().Get("since")
+	pageStr := r.URL.Query().Get("page")
+	sizeStr := r.URL.Query().Get("size")
+
 	var since uint64
 	if sinceStr != "" {
 		fmt.Sscanf(sinceStr, "%d", &since)
 	}
 
-	events := cs.Storage.Search(query, since)
+	page := 1
+	if pageStr != "" {
+		fmt.Sscanf(pageStr, "%d", &page)
+	}
+
+	size := 500
+	if sizeStr != "" {
+		fmt.Sscanf(sizeStr, "%d", &size)
+	}
+
+	events, total := cs.Storage.Search(query, since, page, size)
+
+	resp := SearchResponse{
+		Events: events,
+		Total:  total,
+		Page:   page,
+		Size:   size,
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (cs *ControlServer) HandleListProviders(w http.ResponseWriter, r *http.Request) {

@@ -173,45 +173,63 @@ func (s *Storage) Flush() {
 	}
 }
 
-func (s *Storage) Search(query string, since uint64) []Event {
+func (s *Storage) Search(query string, since uint64, page int, pageSize int) ([]Event, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	results := []Event{}
-	// Case-insensitive flexible match
-	// We could parse specific fields (e.g. "provider:foo") but for now
-	// we will do a simple "contains" on specific fields.
+	var matches []Event
 
-	for _, evt := range s.ramBuffer {
+	// Pre-allocate if possible? Hard to know count.
+	// We iterate backwards to get newest first?
+	// The RAM buffer is append-only, so oldest is at 0.
+	// If we want "Page 1" to be "Newest 500", we should iterate in reverse order.
+
+	for i := len(s.ramBuffer) - 1; i >= 0; i-- {
+		evt := s.ramBuffer[i]
+
 		if since > 0 && evt.Timestamp <= since {
 			continue
 		}
 
+		match := false
 		if query == "" {
-			results = append(results, evt)
-			continue
+			match = true
+		} else {
+			// Check Provider, ID, Data
+			if containsIgnoreCase(evt.ProviderName, query) ||
+				fmt.Sprintf("%d", evt.EventId) == query ||
+				containsIgnoreCase(string(evt.Data), query) {
+				match = true
+			}
 		}
 
-		// Check Provider Name
-		if containsIgnoreCase(evt.ProviderName, query) {
-			results = append(results, evt)
-			continue
-		}
-
-		// Check EventID
-		if fmt.Sprintf("%d", evt.EventId) == query {
-			results = append(results, evt)
-			continue
-		}
-
-		// Check Data (Payload) - assuming simple string search on raw bytes
-		// This might be expensive for large buffers, but acceptable for RAM implementation.
-		if containsIgnoreCase(string(evt.Data), query) {
-			results = append(results, evt)
-			continue
+		if match {
+			matches = append(matches, evt)
 		}
 	}
-	return results
+
+	total := len(matches)
+
+	// Pagination
+	if pageSize <= 0 {
+		return matches, total
+	}
+
+	if page < 1 {
+		page = 1
+	}
+
+	start := (page - 1) * pageSize
+	end := start + pageSize
+
+	if start >= total {
+		return []Event{}, total
+	}
+	if end > total {
+		end = total
+	}
+
+	return matches[start:end], total
 }
 
 func containsIgnoreCase(s, substr string) bool {

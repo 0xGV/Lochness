@@ -56,6 +56,8 @@
             box-sizing: border-box;
             z-index: 5;
             position: relative;
+            overflow: hidden;
+            /* Constrain height */
         }
 
         header {
@@ -123,6 +125,8 @@
             overflow-x: hidden;
             border: 1px solid var(--grid-line);
             background: rgba(0, 20, 0, 0.1);
+            min-height: 0;
+            /* Magic fix for flex scrolling */
         }
 
         .log-row {
@@ -136,6 +140,10 @@
             transition: background 0.2s;
             white-space: nowrap;
             align-items: center;
+            content-visibility: auto;
+            /* SKIP RENDERING OFFSCREEN CONTENT */
+            contain-intrinsic-size: 35px;
+            /* Prevent scrollbar jumping */
         }
 
         .log-row:hover {
@@ -345,6 +353,62 @@
             border-bottom: 1px solid rgba(255, 255, 255, 0.03);
             font-size: 0.75rem;
         }
+
+        /* PAGINATION option 2 */
+        .pagination-grid {
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            justify-content: center;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            border-top: 1px solid var(--term-green);
+        }
+
+        .pg-cell {
+            border: 1px solid var(--term-dim);
+            padding: 5px 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--term-green);
+            font-weight: bold;
+        }
+
+        .pg-cell:hover:not(.disabled) {
+            border-color: var(--term-green);
+            box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+        }
+
+        .pg-cell.active {
+            background: var(--term-green);
+            color: #000;
+        }
+
+        .pg-cell.disabled {
+            opacity: 0.5;
+            cursor: default;
+            border-color: transparent;
+        }
+
+        .pg-arrow {
+            cursor: pointer;
+            padding: 5px 10px;
+            color: var(--term-amber);
+            font-weight: bold;
+        }
+
+        .pg-arrow.disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        .pg-info {
+            margin-left: 20px;
+            font-size: 0.7rem;
+            color: var(--term-dim);
+            border-left: 1px solid var(--term-dim);
+            padding-left: 10px;
+        }
     </style>
 </head>
 
@@ -409,11 +473,32 @@
         const searchInput = document.getElementById('searchInput');
         const gridBody = document.getElementById('gridBody');
         const inspector = document.getElementById('inspector');
+        const liveIndicator = document.getElementById('live-indicator');
 
         let activeEvent = null;
-        let latestTimestamp = "0"; // Store as string to handle uint64 strictly
+        let latestTimestamp = "0";
         let currentQuery = "";
         const MAX_ROWS = 20000;
+        let isUserScrolling = false;
+
+        // PAGINATION STATE
+        let currentPage = 1;
+        const pageSize = 500;
+        let totalEvents = 0;
+
+        // BUFFERING: Disabled/Removed in favor of explicit Paging.
+        // let pendingEvents = [];
+        // let nextFlushTime = ...;
+
+        // Event Delegation
+        gridBody.addEventListener('click', (e) => {
+            const row = e.target.closest('.log-row');
+            if (row && row._evtData) openInspector(row._evtData, row);
+        });
+
+        gridBody.addEventListener('scroll', () => {
+            isUserScrolling = gridBody.scrollTop > 50;
+        });
 
         function formatTime(ns) {
             try {
@@ -427,8 +512,6 @@
 
         async function fetchEvents(isNewSearch = false) {
             const query = searchInput.value;
-
-            // On new search, reset state
             if (isNewSearch || query !== currentQuery) {
                 currentQuery = query;
                 latestTimestamp = "0";
@@ -436,111 +519,140 @@
             }
 
             try {
-                // Fetch only events newer than latestTimestamp
-                const res = await fetch(`/events/search?query=${encodeURIComponent(query)}&since=${latestTimestamp}`);
+                const res = await fetch(`/events/search?query=${encodeURIComponent(query)}&page=${currentPage}&size=${pageSize}`);
                 if (!res.ok) return;
 
-                let events = await res.json();
-                if (!events || events.length === 0) return;
+                let respData = await res.json();
+                let events = Array.isArray(respData) ? respData : respData.events;
+                if (!Array.isArray(events)) events = [];
 
-                // Sort incoming batch: Newest requests come last? 
-                // Storage.go search usually returns appended (chronological).
-                // We want to PREPEND to table (Desc Time).
-                // So we sort batch ASCENDING time (oldest -> newest), 
-                // then update latestTimestamp, then Prepend them in REVERSE order? 
-                // Wait.
-                // If I get [E1(t=100), E2(t=101)], I should prepend E2 then E1?
-                // Visual Order: [E2, E1, E0...]
-                // So I need to iterate the batch and prepend such that the newest ends up on top.
+                totalEvents = respData.total || events.length;
 
-                // Sort batch by timestamp desc first
-                events.sort((a, b) => {
-                    const ta = BigInt(a.timestamp);
-                    const tb = BigInt(b.timestamp);
-                    return (ta < tb) ? 1 : (ta > tb) ? -1 : 0;
-                });
-
-                // Update latest timestamp from the absolute newest event in this batch
-                // (which is at index 0 because we sorted desc)
-                const newestInBatch = events[0].timestamp;
-                if (BigInt(newestInBatch) > BigInt(latestTimestamp)) {
-                    latestTimestamp = newestInBatch.toString();
-                }
-
-                renderBatch(events);
+                renderPage(events);
+                updatePaginationControls();
 
             } catch (e) { console.error(e); }
         }
 
-        function renderBatch(events) {
+
+
+        function renderPage(events) {
+            gridBody.innerHTML = '';
             const fragment = document.createDocumentFragment();
-
             events.forEach(evt => {
-                try {
-                    // Logic to extract data (same as before)
-                    let dataObj = evt.data;
-                    if (typeof dataObj === 'string') {
-                        try { dataObj = JSON.parse(atob(dataObj)); }
-                        catch (e) { try { dataObj = JSON.parse(dataObj); } catch (e2) { dataObj = { raw: dataObj }; } }
-                    }
-
-                    const level = dataObj.LevelStr || dataObj.Level || '-';
-                    const lvlClass = (level.toString().toLowerCase().includes('error') || level.toString().toLowerCase().includes('critical')) ? 'lvl-error' :
-                        (level.toString().toLowerCase().includes('warning')) ? 'lvl-warning' : 'lvl-info';
-
-                    const row = document.createElement('div');
-                    row.className = `log-row`; // Active handled by click
-                    row.onclick = (e) => openInspector(evt, dataObj, e.currentTarget);
-
-                    // Provider hex fallback
-                    let provDisplay = evt.provider_name || "";
-                    if (!provDisplay && evt.provider_id) {
-                        if (Array.isArray(evt.provider_id)) provDisplay = evt.provider_id.slice(0, 4).map(b => b.toString(16).padStart(2, '0')).join('');
-                        else provDisplay = evt.provider_id.toString().slice(0, 8);
-                    }
-
-                    // Summary construction
-                    let summary = "";
-                    const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
-                    if (typeof dataObj === 'object' && dataObj !== null) {
-                        for (const [k, v] of Object.entries(dataObj)) {
-                            if (!ignoreKeys.includes(k)) summary += `${k}=${v} `;
-                        }
-                    }
-                    if (!summary) summary = JSON.stringify(dataObj).slice(0, 100);
-
-                    row.innerHTML = `
-                        <div class="col col-time">${formatTime(evt.timestamp)}</div>
-                        <div class="col col-prov">${provDisplay}</div>
-                        <div class="col col-id">${evt.event_id}</div>
-                        <div class="col col-level ${lvlClass}">${level}</div>
-                        <div class="col">${dataObj.OpcodeStr || dataObj.Opcode || '-'}</div>
-                        <div class="col">${dataObj.TaskStr || dataObj.Task || '-'}</div>
-                        <div class="col col-data">${summary}</div>
-                    `;
-
-                    /* Prepend to fragment. Wait, if I append events[0](newest) to fragment, then events[1](older),
-                       fragment will have [Newest, Older].
-                       When I prepend fragment to gridBody, it puts [Newest, Older] before [CurrentTop].
-                       Result: [Newest, Older, CurrentTop].
-                       This matches Descending Sort. Correct.
-                    */
-                    fragment.appendChild(row);
-
-                } catch (err) { console.error(err); }
+                const r = createRow(evt);
+                if (r) fragment.appendChild(r);
             });
-
-            // Insert new rows at the TOP
-            gridBody.prepend(fragment);
-
-            // Prune old rows (DOM Capping)
-            while (gridBody.children.length > MAX_ROWS) {
-                gridBody.removeChild(gridBody.lastChild);
-            }
+            gridBody.appendChild(fragment);
+            gridBody.scrollTop = 0;
         }
 
-        function openInspector(evt, data, element) {
-            activeEvent = evt;
+        function createRow(evt) {
+            try {
+                let dataObj = evt.data;
+                if (typeof dataObj === 'string') {
+                    try { dataObj = JSON.parse(atob(dataObj)); }
+                    catch (e) { try { dataObj = JSON.parse(dataObj); } catch (e2) { dataObj = { raw: dataObj }; } }
+                }
+
+                const level = dataObj.LevelStr || dataObj.Level || '-';
+                const lvlClass = (level.toString().toLowerCase().includes('error') || level.toString().toLowerCase().includes('critical')) ? 'lvl-error' :
+                    (level.toString().toLowerCase().includes('warning')) ? 'lvl-warning' : 'lvl-info';
+
+                const row = document.createElement('div');
+                row.className = `log-row`;
+                row._evtData = { evt, data: dataObj };
+
+                let provDisplay = evt.provider_name || "";
+                if (!provDisplay && evt.provider_id) {
+                    if (Array.isArray(evt.provider_id)) provDisplay = evt.provider_id.slice(0, 4).map(b => b.toString(16).padStart(2, '0')).join('');
+                    else provDisplay = evt.provider_id.toString().slice(0, 8);
+                }
+
+                let summary = "";
+                const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
+                if (typeof dataObj === 'object' && dataObj !== null) {
+                    for (const [k, v] of Object.entries(dataObj)) {
+                        if (!ignoreKeys.includes(k)) summary += `${k}=${v} `;
+                    }
+                }
+                if (!summary) summary = JSON.stringify(dataObj).slice(0, 100);
+
+                row.innerHTML = `
+                    <div class="col col-time">${formatTime(evt.timestamp)}</div>
+                    <div class="col col-prov">${provDisplay}</div>
+                    <div class="col col-id">${evt.event_id}</div>
+                    <div class="col col-level ${lvlClass}">${level}</div>
+                    <div class="col">${dataObj.OpcodeStr || dataObj.Opcode || '-'}</div>
+                    <div class="col">${dataObj.TaskStr || dataObj.Task || '-'}</div>
+                    <div class="col col-data">${summary}</div>
+                `;
+                return row;
+            } catch (err) { console.error(err); return null; }
+        }
+
+        // --- Pagination UI ---
+        // Dynamically inject the pagination controls if not present
+        if (!document.getElementById('pagination-ui')) {
+            const pgContainer = document.createElement('div');
+            pgContainer.id = 'pagination-ui';
+            pgContainer.className = 'pagination-grid';
+            gridBody.parentElement.appendChild(pgContainer);
+        }
+
+        function updatePaginationControls() {
+            const container = document.getElementById('pagination-ui');
+            const totalPages = Math.ceil(totalEvents / pageSize);
+            if (totalPages <= 1) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'flex';
+
+            let html = '';
+
+            // Prev
+            html += `<div class="pg-arrow ${currentPage === 1 ? 'disabled' : ''}" onclick="changePage(${currentPage - 1})">&lt;&lt;</div>`;
+
+            // Page Logic (Show window of pages)
+            let startP = Math.max(1, currentPage - 2);
+            let endP = Math.min(totalPages, startP + 4);
+            if (endP - startP < 4) startP = Math.max(1, endP - 4);
+
+            if (startP > 1) {
+                html += `<div class="pg-cell" onclick="changePage(1)">01</div>`;
+                if (startP > 2) html += `<div class="pg-cell disabled">...</div>`;
+            }
+
+            for (let i = startP; i <= endP; i++) {
+                const active = i === currentPage ? 'active' : '';
+                html += `<div class="pg-cell ${active}" onclick="changePage(${i})">${i.toString().padStart(2, '0')}</div>`;
+            }
+
+            if (endP < totalPages) {
+                if (endP < totalPages - 1) html += `<div class="pg-cell disabled">...</div>`;
+                html += `<div class="pg-cell" onclick="changePage(${totalPages})">${totalPages}</div>`;
+            }
+
+            // Next
+            html += `<div class="pg-arrow ${currentPage === totalPages ? 'disabled' : ''}" onclick="changePage(${currentPage + 1})">&gt;&gt;</div>`;
+
+            html += `<div class="pg-info">RANGE: ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, totalEvents)} / ${totalEvents}</div>`;
+
+            container.innerHTML = html;
+        }
+
+        window.changePage = function (p) {
+            if (p < 1 || p > Math.ceil(totalEvents / pageSize)) return;
+            currentPage = p;
+            fetchEvents();
+        }
+
+        function openInspector(wrap, element) {
+            activeEvent = wrap.evt;
+            const data = wrap.data;
+            const evt = wrap.evt;
+
             inspector.classList.add('open');
             document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
             element.classList.add('active');
@@ -549,17 +661,15 @@
 
             const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
             let payloadHtml = '<table class="kv-table">';
-            let hasData = false;
             if (data) {
                 for (const [k, v] of Object.entries(data)) {
                     if (!ignoreKeys.includes(k)) {
                         payloadHtml += `<tr><td class="kv-key">${k}</td><td class="kv-val">${v}</td></tr>`;
-                        hasData = true;
                     }
                 }
             }
             payloadHtml += '</table>';
-            document.getElementById('ins-data').innerHTML = hasData ? payloadHtml : "<NO_PAYLOAD_SCHEMA>";
+            document.getElementById('ins-data').innerHTML = payloadHtml;
 
             let metaHtml = `
                 <tr><td class="kv-key">TIMESTAMP</td><td class="kv-val">${evt.timestamp}</td></tr>
@@ -582,10 +692,16 @@
             timeout = setTimeout(() => fetchEvents(true), 300);
         });
 
+
+
         // Initial load
         fetchEvents(true);
-        // Poll every 1s (Faster now that it's incremental)
-        setInterval(() => fetchEvents(false), 1000);
+
+        // Fetch background every 5s for page 1 updates?
+        // Let's keep it manual or simple poll for now.
+        setInterval(() => {
+            if (currentPage === 1 && !isUserScrolling) fetchEvents();
+        }, 5000);
 
     </script>
 </body>

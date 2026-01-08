@@ -53,7 +53,7 @@ func TestStorage_Search(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			results := s.Search(tt.query, 0)
+			results, _ := s.Search(tt.query, 0, 1, 1000)
 			if len(results) != tt.expected {
 				t.Errorf("Search(%q) returned %d results, expected %d", tt.query, len(results), tt.expected)
 			}
