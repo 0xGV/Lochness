@@ -10,11 +10,11 @@ import (
 )
 
 type Event struct {
-	Timestamp    uint64   `json:"timestamp"`
-	ProviderId   [16]byte `json:"provider_id"`
-	ProviderName string   `json:"provider_name"`
-	EventId      uint16   `json:"event_id"`
-	Data         []byte   `json:"data"` // Base64 in JSON by default
+	Timestamp    uint64          `json:"timestamp,string"`
+	ProviderId   [16]byte        `json:"provider_id"`
+	ProviderName string          `json:"provider_name"`
+	EventId      uint16          `json:"event_id"`
+	Data         json.RawMessage `json:"data"` // Raw JSON
 }
 
 type StorageConfig struct {

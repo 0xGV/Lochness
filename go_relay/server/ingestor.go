@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"os"
@@ -160,7 +161,7 @@ func (s *PipeServer) handleConnection(f *os.File) {
 			ProviderId:   header.ProviderId,
 			ProviderName: name,
 			EventId:      header.EventId,
-			Data:         payload,
+			Data:         json.RawMessage(payload),
 		}
 		s.Storage.Add(evt)
 	}

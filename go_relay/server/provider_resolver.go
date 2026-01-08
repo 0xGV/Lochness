@@ -6,6 +6,7 @@ import (
 	"log" // Added log for errors
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -109,6 +110,12 @@ func (pr *ProviderResolver) GetAll() []ProviderInfo {
 		}
 		list = append(list, info)
 	}
+
+	// Sort by Name for stable UI ordering
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Name < list[j].Name
+	})
+
 	return list
 }
 

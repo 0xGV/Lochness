@@ -9,6 +9,10 @@
 #include <map>
 #include <strsafe.h>
 
+// Include nlohmann/json
+#include "nlohmann/json.hpp"
+using json = nlohmann::json;
+
 ETWWorker::ETWWorker()
     : m_sessionHandle(0), m_traceHandle(INVALID_PROCESSTRACE_HANDLE),
       m_running(false), m_hPipe(INVALID_HANDLE_VALUE), m_droppedEvents(0) {}
@@ -20,14 +24,35 @@ ETWWorker::~ETWWorker() {
   }
 }
 
+// Helper to convert Wide String to UTF-8 std::string for JSON
+std::string ToUtf8(const std::wstring &wstr) {
+  if (wstr.empty())
+    return "";
+  int size_needed = WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(),
+                                        NULL, 0, NULL, NULL);
+  std::string strTo(size_needed, 0);
+  WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0],
+                      size_needed, NULL, NULL);
+  return strTo;
+}
+
+// Helper to convert UTF-8 std::string to Wide String
+std::wstring ToWide(const std::string &str) {
+  if (str.empty())
+    return L"";
+  int size_needed =
+      MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+  std::wstring wstrTo(size_needed, 0);
+  MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0],
+                      size_needed);
+  return wstrTo;
+}
+
 bool ETWWorker::ConnectPipe(const std::wstring &pipeName) {
   m_hPipe = CreateFileW(pipeName.c_str(), GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
                         FILE_ATTRIBUTE_NORMAL, NULL);
 
   if (m_hPipe != INVALID_HANDLE_VALUE) {
-    // We'll use blocking mode for reliability but small buffers to ensure
-    // lossy behavior if we choose. For now, standard blocking is safer
-    // for the stream synchronization.
     std::wcout << L"Successfully connected to relay pipe: " << pipeName
                << std::endl;
     return true;
@@ -45,7 +70,6 @@ void ETWWorker::Start(const std::wstring &sessionName) {
 void ETWWorker::Stop() {
   m_running = false;
   if (m_sessionHandle) {
-    // Allocate properties for Stop
     size_t propsSize = sizeof(EVENT_TRACE_PROPERTIES) +
                        (m_sessionName.length() + 1) * sizeof(wchar_t);
     EVENT_TRACE_PROPERTIES *pProps =
@@ -109,8 +133,6 @@ void ETWWorker::DisableProvider(const std::wstring &providerGuid) {
 }
 
 void ETWWorker::TraceLoop() {
-  // 1. Start Trace Session
-  // We need to allocate memory for EVENT_TRACE_PROPERTIES + session name
   size_t propsSize = sizeof(EVENT_TRACE_PROPERTIES) +
                      (m_sessionName.length() + 1) * sizeof(wchar_t) + 1024;
   EVENT_TRACE_PROPERTIES *pProps = (EVENT_TRACE_PROPERTIES *)malloc(propsSize);
@@ -120,10 +142,8 @@ void ETWWorker::TraceLoop() {
   pProps->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
   pProps->Wnode.ClientContext = 1; // QPC
   pProps->LogFileMode = EVENT_TRACE_REAL_TIME_MODE;
-  pProps->LoggerNameOffset =
-      sizeof(EVENT_TRACE_PROPERTIES); // Name follows struct
+  pProps->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
 
-  // Stop if exists
   ControlTraceW(0, m_sessionName.c_str(), pProps, EVENT_TRACE_CONTROL_STOP);
 
   ULONG status = StartTraceW(&m_sessionHandle, m_sessionName.c_str(), pProps);
@@ -137,7 +157,6 @@ void ETWWorker::TraceLoop() {
 
   free(pProps);
 
-  // 2. Open Trace for Consumption
   EVENT_TRACE_LOGFILEW logFile;
   ZeroMemory(&logFile, sizeof(logFile));
   logFile.LoggerName = (LPWSTR)m_sessionName.c_str();
@@ -145,8 +164,7 @@ void ETWWorker::TraceLoop() {
       PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_EVENT_RECORD;
   logFile.EventRecordCallback =
       (PEVENT_RECORD_CALLBACK)ETWWorker::EventCallback;
-  logFile.Context =
-      this; // Pass 'this' to callback ... wait, EventCallback is static.
+  logFile.Context = this;
 
   m_traceHandle = OpenTraceW(&logFile);
   if (m_traceHandle == INVALID_PROCESSTRACE_HANDLE) {
@@ -170,49 +188,8 @@ void WINAPI ETWWorker::EventCallback(PEVENT_RECORD pEvent) {
   pWorker->ProcessEvent(pEvent);
 }
 
-std::wstring JsonEscape(const std::wstring &s) {
-  std::wstring res;
-  for (wchar_t c : s) {
-    switch (c) {
-    case L'\"':
-      res += L"\\\"";
-      break;
-    case L'\\':
-      res += L"\\\\";
-      break;
-    case L'\b':
-      res += L"\\b";
-      break;
-    case L'\f':
-      res += L"\\f";
-      break;
-    case L'\n':
-      res += L"\\n";
-      break;
-    case L'\r':
-      res += L"\\r";
-      break;
-    case L'\t':
-      res += L"\\t";
-      break;
-    default:
-      if (c < 32 || c > 126) {
-        // Simple hex escape for non-printable/unicode or just pass-through if
-        // UTF8 later handled
-        // For simplicity, just pass through or skip if control
-        if (c >= 32)
-          res += c;
-      } else {
-        res += c;
-      }
-    }
-  }
-  return res;
-}
-
 std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
                                             const std::wstring &providerName) {
-  // Use Winevt API as requested for better reliability
   EVT_HANDLE hMetadata = NULL;
   if (!providerName.empty()) {
     hMetadata =
@@ -236,37 +213,33 @@ std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
   }
 
   if (!hMetadata) {
-    // Fallback: If we have observed events, return them
     std::wcerr << L"Failed to open publisher metadata for: "
                << cleanGuid.c_str() << L" Error: " << GetLastError()
                << std::endl;
 
-    std::wstring json = L"[";
+    json jArray = json::array();
     std::lock_guard<std::mutex> lock(m_stateMutex);
 
-    bool first = true;
     GUID targetGuid;
-    // We need to parse GUID first to compare
     if (UuidFromStringW((RPC_WSTR)providerGuid.c_str(), &targetGuid) ==
         RPC_S_OK) {
       for (const auto &pair : m_schemaCache) {
         if (IsEqualGUID(pair.first.ProviderId, targetGuid)) {
-          if (!first)
-            json += L",";
-          json += L"{\"Id\":" + std::to_wstring(pair.first.Id) +
-                  L",\"Description\":\"Observed Event\"}";
-          first = false;
+          json jEvt;
+          jEvt["Id"] = pair.first.Id;
+          jEvt["Description"] = "Observed Event";
+          jArray.push_back(jEvt);
         }
       }
     }
-    json += L"]";
-    return json;
+    return ToWide(jArray.dump());
   }
 
   std::map<UINT64, std::wstring> keywordMap;
   std::map<UINT32, std::wstring> opcodeMap;
   std::map<UINT32, std::wstring> taskMap;
 
+  // Helpers to load metadata maps
   if (hMetadata) {
     auto LoadMap = [&](EVT_PUBLISHER_METADATA_PROPERTY_ID arrayId,
                        EVT_PUBLISHER_METADATA_PROPERTY_ID valId,
@@ -326,16 +299,11 @@ std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
               res[val] = name;
           }
         }
-        // Note: hArray is owned by hPublisher? No, usually separate. But
-        // EvtGetPublisherMetadataProperty returns variant with handle. Docs
-        // say: "You must call the EvtClose function to close the handle when
-        // you are done."
         EvtClose(hArray);
       }
       return res;
     };
 
-    // Need cast? IDs are generic enum.
     std::map<UINT64, std::wstring> kRaw =
         LoadMap(EvtPublisherMetadataKeywords, EvtPublisherMetadataKeywordValue,
                 EvtPublisherMetadataKeywordName);
@@ -354,25 +322,21 @@ std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
       taskMap[(UINT32)p.first] = p.second;
   }
 
-  std::wstring json = L"[";
+  json jArray = json::array();
   EVT_HANDLE hEnum = EvtOpenEventMetadataEnum(hMetadata, 0);
   if (hEnum) {
     EVT_HANDLE hEvent = NULL;
-    bool first = true;
     while ((hEvent = EvtNextEventMetadata(hEnum, 0)) != NULL) {
-      DWORD dwBufferSize = 0;
-      DWORD dwBufferUsed = 0;
 
-      // Get ID
       UINT64 eventId = 0;
-      DWORD dwValUsed = 0;
+      DWORD bufUsed = 0;
       if (!EvtGetEventMetadataProperty(hEvent, EventMetadataEventID, 0, 0, NULL,
-                                       &dwValUsed) &&
+                                       &bufUsed) &&
           GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
-        std::vector<BYTE> valBuf(dwValUsed);
+        std::vector<BYTE> valBuf(bufUsed);
         if (EvtGetEventMetadataProperty(hEvent, EventMetadataEventID, 0,
-                                        dwValUsed, (PEVT_VARIANT)valBuf.data(),
-                                        &dwValUsed)) {
+                                        bufUsed, (PEVT_VARIANT)valBuf.data(),
+                                        &bufUsed)) {
           PEVT_VARIANT pVal = (PEVT_VARIANT)valBuf.data();
           if (pVal->Type == EvtVarTypeUInt32 ||
               pVal->Type == EvtVarTypeUInt64) {
@@ -469,27 +433,26 @@ std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
         }
       }
 
-      if (!first)
-        json += L",";
+      json jEvt;
+      jEvt["Id"] = eventId;
+      jEvt["Version"] = version;
+      jEvt["Level"] = levelId;
+      jEvt["LevelStr"] = ToUtf8(levelStr);
+      jEvt["Opcode"] = opcodeId;
+      jEvt["OpcodeStr"] = ToUtf8(opcodeStr);
+      jEvt["Task"] = taskId;
+      jEvt["TaskStr"] = ToUtf8(taskStr);
+      jEvt["Keyword"] = ToUtf8(keyword);
+      jEvt["Description"] = ToUtf8(description);
 
-      json +=
-          L"{\"Id\":" + std::to_wstring(eventId) + L",\"Version\":" +
-          std::to_wstring(version) + L",\"Level\":" + std::to_wstring(levelId) +
-          L",\"LevelStr\":\"" + JsonEscape(levelStr) + L"\"" + L",\"Opcode\":" +
-          std::to_wstring(opcodeId) + L",\"OpcodeStr\":\"" +
-          JsonEscape(opcodeStr) + L"\"" + L",\"Task\":" +
-          std::to_wstring(taskId) + L",\"TaskStr\":\"" + JsonEscape(taskStr) +
-          L"\"" + L",\"Keyword\":\"" + JsonEscape(keyword) + L"\"" +
-          L",\"Description\":\"" + JsonEscape(description) + L"\"}";
-      first = false;
+      jArray.push_back(jEvt);
 
       EvtClose(hEvent);
     }
     EvtClose(hEnum);
   }
   EvtClose(hMetadata);
-  json += L"]";
-  return json;
+  return ToWide(jArray.dump());
 }
 
 void ETWWorker::SetProviderFilter(const std::wstring &providerGuid,
@@ -501,16 +464,7 @@ void ETWWorker::SetProviderFilter(const std::wstring &providerGuid,
     return;
   }
 
-  // If IDs are empty, we want to clear the filter.
-  // Passing NULL filter to EnableTraceEx2 clears it?
-  // Or do we need to Enable without params.
-  // We will re-enable the provider with (or without) filter parameters.
-
   if (eventIds.empty()) {
-    // Enable without filters (clears them)
-    // Note: This assumes Level=VERBOSE (0) logic from EnableProvider.
-    // Ideally we track current level/keywords, but for now re-enabling with
-    // default is okay.
     ULONG status = EnableTraceEx2(m_sessionHandle, &guid,
                                   EVENT_CONTROL_CODE_ENABLE_PROVIDER,
                                   TRACE_LEVEL_VERBOSE, 0, 0, 0, NULL);
@@ -523,16 +477,8 @@ void ETWWorker::SetProviderFilter(const std::wstring &providerGuid,
     return;
   }
 
-  // Construct EVENT_FILTER_EVENT_ID
-  size_t filterSize =
-      sizeof(EVENT_FILTER_EVENT_ID) +
-      (eventIds.size() > 0 ? (eventIds.size() - 1) : 0) * sizeof(USHORT);
-  // Actually, align usage:
-  // Offset of 'Events' is where array starts.
-  // But definition is USHORT Events[ANYSIZE_ARRAY].
-  // Safe calculation:
-  filterSize = offsetof(EVENT_FILTER_EVENT_ID, Events) +
-               eventIds.size() * sizeof(USHORT);
+  size_t filterSize = offsetof(EVENT_FILTER_EVENT_ID, Events) +
+                      eventIds.size() * sizeof(USHORT);
 
   std::vector<BYTE> buffer(filterSize);
   PEVENT_FILTER_EVENT_ID pFilter = (PEVENT_FILTER_EVENT_ID)buffer.data();
@@ -553,9 +499,6 @@ void ETWWorker::SetProviderFilter(const std::wstring &providerGuid,
   ENABLE_TRACE_PARAMETERS params;
   ZeroMemory(&params, sizeof(params));
   params.Version = ENABLE_TRACE_PARAMETERS_VERSION_2;
-  params.EnableProperty = 0;
-  params.ControlFlags = 0;
-  params.SourceId = guid; // Not strictly used for normal enable?
   params.EnableFilterDesc = &filterDesc;
   params.FilterDescCount = 1;
 
@@ -573,19 +516,14 @@ void ETWWorker::SetProviderFilter(const std::wstring &providerGuid,
 
 void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   if (m_hPipe == INVALID_HANDLE_VALUE) {
-    // Re-attempt connection to relay
     if (!ConnectPipe(L"\\\\.\\pipe\\etw_stream")) {
       return;
     }
   }
 
-  // Filter headers?
   if (IsEqualGUID(pEvent->EventHeader.ProviderId, EventTraceGuid))
-    return; // Skip meta events if unwanted
+    return;
 
-  // --- FILTERING CHECK ---
-  // Kernel now handles filtering! We just process what we receive.
-  // We hold lock for Cache Access
   std::lock_guard<std::mutex> lock(m_stateMutex);
 
   // 1. Define Cache Key
@@ -597,7 +535,7 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   // 2. Check Cache
   auto it = m_schemaCache.find(key);
   if (it == m_schemaCache.end()) {
-    // Cache Miss - "First-Look" Logic
+    // Cache Miss
     ULONG bufferSize = 0;
     ULONG status = TdhGetEventInformation(pEvent, 0, NULL, NULL, &bufferSize);
 
@@ -612,7 +550,6 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
             PropertyMetadata meta;
             EVENT_PROPERTY_INFO &propInfo = pInfo->EventPropertyInfoArray[i];
 
-            // Handle Name
             if (propInfo.NameOffset != 0) {
               meta.Name =
                   std::wstring((LPWSTR)((PBYTE)pInfo + propInfo.NameOffset));
@@ -623,7 +560,6 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
             meta.InType = propInfo.nonStructType.InType;
             meta.OutType = propInfo.nonStructType.OutType;
 
-            // Check for length
             if ((propInfo.Flags & PropertyParamLength) ||
                 (propInfo.Flags & PropertyParamCount)) {
               meta.IsVariable = true;
@@ -632,7 +568,6 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
               meta.Length = propInfo.length;
               meta.IsVariable = (meta.Length == 0);
 
-              // Force strings to be variable if length not explicitly static
               if (meta.InType == TDH_INTYPE_UNICODESTRING ||
                   meta.InType == TDH_INTYPE_ANSISTRING ||
                   meta.InType == TDH_INTYPE_SID) {
@@ -642,20 +577,19 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
             props.push_back(meta);
           }
           m_schemaCache[key] = props;
-          it = m_schemaCache.find(key); // Refresh iterator after insert
+          it = m_schemaCache.find(key);
         }
         free(pInfo);
       }
     }
   }
 
-  // If still not found (TDH failed), we can't parse payload
   if (it == m_schemaCache.end()) {
     return;
   }
 
-  // 3. Hot Path Parsing (JSON serialization)
-  std::wstring json = L"{";
+  // 3. Hot Path Parsing (JSON serialization used nlohmann::json)
+  json jObj;
 
   PBYTE pData = (PBYTE)pEvent->UserData;
   PBYTE pEnd = pData + pEvent->UserDataLength;
@@ -666,10 +600,7 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       break;
 
     const auto &prop = props[i];
-    if (i > 0)
-      json += L",";
-
-    json += L"\"" + JsonEscape(prop.Name) + L"\":";
+    std::string keyName = ToUtf8(prop.Name);
 
     // Value Extraction
     switch (prop.InType) {
@@ -679,10 +610,10 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       if (pData + 4 <= pEnd) {
         uint32_t val;
         memcpy(&val, pData, 4);
-        json += std::to_wstring(val);
+        jObj[keyName] = val; // let json handle type
         pData += 4;
       } else {
-        json += L"0";
+        jObj[keyName] = 0;
       }
       break;
     }
@@ -691,10 +622,10 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       if (pData + 2 <= pEnd) {
         uint16_t val;
         memcpy(&val, pData, 2);
-        json += std::to_wstring(val);
+        jObj[keyName] = val;
         pData += 2;
       } else {
-        json += L"0";
+        jObj[keyName] = 0;
       }
       break;
     }
@@ -704,10 +635,10 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       if (pData + 8 <= pEnd) {
         uint64_t val;
         memcpy(&val, pData, 8);
-        json += std::to_wstring(val);
+        jObj[keyName] = val;
         pData += 8;
       } else {
-        json += L"0";
+        jObj[keyName] = 0;
       }
       break;
     }
@@ -718,10 +649,10 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       if (pData + ptrSize <= pEnd) {
         uint64_t val = 0;
         memcpy(&val, pData, ptrSize);
-        json += std::to_wstring(val);
+        jObj[keyName] = val;
         pData += ptrSize;
       } else {
-        json += L"0";
+        jObj[keyName] = 0;
       }
       break;
     }
@@ -729,10 +660,10 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       if (pData + 4 <= pEnd) {
         uint32_t val;
         memcpy(&val, pData, 4);
-        json += val ? L"true" : L"false";
+        jObj[keyName] = (val != 0);
         pData += 4;
       } else {
-        json += L"false";
+        jObj[keyName] = false;
       }
       break;
     }
@@ -742,14 +673,14 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
         memcpy(&g, pData, sizeof(GUID));
         RPC_WSTR str = NULL;
         if (UuidToStringW(&g, &str) == RPC_S_OK) {
-          json += L"\"" + std::wstring((wchar_t *)str) + L"\"";
+          jObj[keyName] = ToUtf8((wchar_t *)str);
           RpcStringFreeW(&str);
         } else {
-          json += L"\"00000000-0000-0000-0000-000000000000\"";
+          jObj[keyName] = "00000000-0000-0000-0000-000000000000";
         }
         pData += sizeof(GUID);
       } else {
-        json += L"\"00000000-0000-0000-0000-000000000000\"";
+        jObj[keyName] = "00000000-0000-0000-0000-000000000000";
       }
       break;
     }
@@ -760,7 +691,7 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
         len++;
       }
       std::wstring s((wchar_t *)pData, len);
-      json += L"\"" + JsonEscape(s) + L"\"";
+      jObj[keyName] = ToUtf8(s);
       pData += (len + 1) * 2;
       break;
     }
@@ -770,13 +701,12 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       while (len < maxLen && ((char *)pData)[len] != 0)
         len++;
       std::string mbs((char *)pData, len);
-      std::wstring wstr(mbs.begin(), mbs.end());
-      json += L"\"" + JsonEscape(wstr) + L"\"";
+      jObj[keyName] = mbs; // Assuming standard ASCII/UTF8 or let json escape it
       pData += (len + 1);
       break;
     }
     default:
-      json += L"\"<UnsupportedType>\"";
+      jObj[keyName] = "<UnsupportedType>";
       if (!prop.IsVariable) {
         pData += prop.Length;
       } else {
@@ -785,36 +715,27 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       break;
     }
   }
-  json += L"}";
 
   // 4. Send Packet (Header + JSON)
-  int payloadLen = WideCharToMultiByte(CP_UTF8, 0, json.c_str(),
-                                       (int)json.length(), NULL, 0, NULL, NULL);
-  if (payloadLen > 0) {
+  // Dump to minified string
+  std::string jsonPayload = jObj.dump();
+
+  if (!jsonPayload.empty()) {
     std::vector<char> sendBuf;
-    sendBuf.resize(sizeof(PacketHeader) + payloadLen);
+    sendBuf.resize(sizeof(PacketHeader) + jsonPayload.size());
 
     PacketHeader *h = (PacketHeader *)sendBuf.data();
     h->Timestamp = pEvent->EventHeader.TimeStamp.QuadPart;
     h->ProviderId = pEvent->EventHeader.ProviderId;
     h->EventId = pEvent->EventHeader.EventDescriptor.Id;
-    h->PayloadSize = (unsigned __int32)payloadLen;
+    h->PayloadSize = (unsigned __int32)jsonPayload.size();
 
-    WideCharToMultiByte(CP_UTF8, 0, json.c_str(), (int)json.length(),
-                        (char *)(sendBuf.data() + sizeof(PacketHeader)),
-                        payloadLen, NULL, NULL);
+    // Copy payload after header
+    memcpy(sendBuf.data() + sizeof(PacketHeader), jsonPayload.data(),
+           jsonPayload.size());
 
-    DWORD written;
-    if (!WriteFile(m_hPipe, sendBuf.data(), (DWORD)sendBuf.size(), &written,
-                   NULL) ||
-        written != sendBuf.size()) {
-      m_droppedEvents++;
-      // If the pipe is broken, reset the handle
-      if (GetLastError() == ERROR_BROKEN_PIPE ||
-          GetLastError() == ERROR_NO_DATA) {
-        CloseHandle(m_hPipe);
-        m_hPipe = INVALID_HANDLE_VALUE;
-      }
-    }
+    DWORD bytesWritten;
+    WriteFile(m_hPipe, sendBuf.data(), (DWORD)sendBuf.size(), &bytesWritten,
+              NULL);
   }
 }

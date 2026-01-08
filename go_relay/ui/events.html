@@ -3,291 +3,591 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Lochness // EVENTS</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lochness // SYSTEM_TELEMETRY</title>
     <style>
         :root {
             --bg-color: #050505;
             --term-green: #00ff41;
             --term-dim: #008F11;
             --term-amber: #ffb000;
-            --grid-line: #1a1a1a;
-            --scanline: rgba(0, 255, 65, 0.05);
+            --accent-cyan: #00f3ff;
+            --accent-magenta: #ff00ff;
+            --grid-line: rgba(255, 255, 255, 0.05);
+            --scanline: rgba(0, 255, 65, 0.03);
+            --font-mono: 'Courier New', Courier, monospace;
         }
 
-        body {
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
             background-color: var(--bg-color);
             color: var(--term-green);
-            font-family: 'Courier New', Courier, monospace;
-            margin: 0;
-            padding: 20px;
+            font-family: var(--font-mono);
             overflow: hidden;
-            height: 100vh;
             display: flex;
             flex-direction: column;
         }
 
-        /* Scanline effect */
+        /* CRT Effects */
         body::before {
             content: " ";
             display: block;
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
             bottom: 0;
             right: 0;
-            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
-            z-index: 2;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 1000;
             background-size: 100% 2px, 3px 100%;
             pointer-events: none;
         }
 
+        #terminal-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            box-sizing: border-box;
+            z-index: 5;
+            position: relative;
+        }
+
         header {
             display: flex;
-            gap: 20px;
+            justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
             border-bottom: 1px solid var(--term-dim);
-            padding-bottom: 10px;
-            z-index: 3;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
         }
 
         h1 {
             margin: 0;
-            font-size: 24px;
+            font-size: 1.4rem;
             text-transform: uppercase;
-            letter-spacing: 2px;
-            text-shadow: 0 0 5px var(--term-green);
+            letter-spacing: 5px;
+            text-shadow: 0 0 10px var(--term-green);
         }
 
-        nav a {
-            color: var(--term-dim);
-            text-decoration: none;
-            margin-right: 15px;
-            font-weight: bold;
-        }
-
-        nav a:hover,
-        nav a.active {
-            color: var(--term-green);
-            text-shadow: 0 0 5px var(--term-green);
-        }
-
-        .search-container {
+        .search-area {
             display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-            z-index: 3;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
         }
 
-        .cmd-input {
+        .cmd-prompt {
+            color: var(--term-amber);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .search-input {
             background: transparent;
             border: 1px solid var(--term-dim);
             color: var(--term-green);
+            padding: 8px 15px;
             font-family: inherit;
-            padding: 10px;
+            font-size: 0.95rem;
             flex-grow: 1;
-            font-size: 16px;
-        }
-
-        .cmd-input:focus {
             outline: none;
-            border-color: var(--term-green);
-            box-shadow: 0 0 10px var(--term-dim);
+            transition: all 0.2s;
         }
 
-        .data-grid-container {
+        .search-input:focus {
+            border-color: var(--term-green);
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+        }
+
+        .grid-header {
+            display: grid;
+            grid-template-columns: 180px 220px 80px 100px 150px 150px 1fr;
+            gap: 15px;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--term-green);
+            color: var(--term-amber);
+            font-weight: bold;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .grid-body {
             flex-grow: 1;
             overflow-y: auto;
+            overflow-x: hidden;
             border: 1px solid var(--grid-line);
-            position: relative;
-            z-index: 3;
+            background: rgba(0, 20, 0, 0.1);
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-
-        th {
-            text-align: left;
-            padding: 10px;
-            border-bottom: 1px solid var(--term-green);
-            position: sticky;
-            top: 0;
-            background-color: var(--bg-color);
-            text-transform: uppercase;
-            color: var(--term-amber);
-        }
-
-        td {
-            padding: 8px 10px;
+        .log-row {
+            display: grid;
+            grid-template-columns: 180px 220px 80px 100px 150px 150px 1fr;
+            gap: 15px;
+            padding: 8px 15px;
             border-bottom: 1px solid var(--grid-line);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
             white-space: nowrap;
+            align-items: center;
+        }
+
+        .log-row:hover {
+            background: rgba(0, 255, 65, 0.05);
+        }
+
+        .log-row.active {
+            background: rgba(0, 255, 65, 0.15);
+            border-left: 3px solid var(--term-green);
+        }
+
+        .col {
             overflow: hidden;
             text-overflow: ellipsis;
-            max-width: 300px;
-        }
-
-        tr:hover {
-            background-color: rgba(0, 255, 65, 0.1);
         }
 
         .col-time {
-            width: 180px;
             color: var(--term-dim);
         }
 
         .col-prov {
-            width: 250px;
+            color: var(--accent-cyan);
             font-weight: bold;
         }
 
         .col-id {
-            width: 80px;
+            color: var(--term-amber);
             text-align: right;
+        }
+
+        .col-level {
+            font-weight: bold;
+        }
+
+        .lvl-critical,
+        .lvl-error {
+            color: var(--accent-magenta);
+        }
+
+        .lvl-warning {
             color: var(--term-amber);
         }
 
+        .lvl-info {
+            color: var(--term-green);
+        }
+
         .col-data {
-            color: #cccccc;
+            color: #888;
+        }
+
+        /* Inspector Panel */
+        #inspector {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 450px;
+            height: 100%;
+            background: rgba(5, 5, 5, 0.95);
+            border-left: 1px solid var(--term-green);
+            backdrop-filter: blur(20px);
+            transform: translateX(100%);
+            transition: transform 0.3s ease-out;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            box-sizing: border-box;
+            box-shadow: -10px 0 50px rgba(0, 0, 0, 0.8);
+        }
+
+        #inspector.open {
+            transform: translateX(0);
+        }
+
+        .ins-header {
+            border-bottom: 1px solid var(--term-dim);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ins-title {
+            color: var(--term-amber);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .ins-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+
+        .ins-section {
+            margin-bottom: 25px;
+        }
+
+        .ins-label {
+            color: var(--term-dim);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .ins-value {
+            color: var(--term-green);
+            word-break: break-all;
+            white-space: pre-wrap;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-close {
+            background: transparent;
+            border: 1px solid var(--term-dim);
+            color: var(--term-dim);
+            padding: 5px 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.7rem;
+        }
+
+        .btn-close:hover {
+            border-color: var(--term-green);
+            color: var(--term-green);
+        }
+
+        /* Mode Capsule */
+        #mode-capsule {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50px;
+            padding: 5px;
+            display: flex;
+            gap: 5px;
+            z-index: 10000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: #888;
+            padding: 8px 20px;
+            border-radius: 40px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+
+        .mode-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .mode-btn.active {
+            background: var(--term-green);
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
         }
 
         ::-webkit-scrollbar {
-            width: 10px;
+            width: 6px;
         }
 
         ::-webkit-scrollbar-track {
-            background: #000;
+            background: transparent;
         }
 
         ::-webkit-scrollbar-thumb {
             background: var(--term-dim);
-            border: 1px solid #000;
         }
 
         ::-webkit-scrollbar-thumb:hover {
             background: var(--term-green);
         }
+
+        .kv-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .kv-key {
+            color: var(--term-dim);
+            padding: 4px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            width: 40%;
+            font-size: 0.75rem;
+        }
+
+        .kv-val {
+            color: #ccc;
+            padding: 4px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-size: 0.75rem;
+        }
     </style>
 </head>
 
 <body>
+    <div id="terminal-container">
+        <header>
+            <h1>> SYSTEM_TELEMETRY_TERMINAL</h1>
+            <div id="live-indicator" style="font-size: 0.75rem; color: var(--term-dim);">> CONNECTION: LIVE</div>
+        </header>
 
-    <header>
-        <h1>> SYSTEM_LOGS</h1>
-        <nav>
-            <a href="index.html">DASHBOARD</a>
-            <a href="events.html" class="active">EVENTS</a>
-            <a href="timeline.html">TIMELINE</a>
-        </nav>
-    </header>
+        <div class="search-area">
+            <span class="cmd-prompt">></span>
+            <input type="text" id="searchInput" class="search-input" placeholder="SEARCH_BY_ID_OR_PAYLOAD..."
+                autocomplete="off">
+        </div>
 
-    <div class="search-container">
-        <span style="padding: 10px; font-weight: bold;">></span>
-        <input type="text" id="searchInput" class="cmd-input" placeholder="Enter query string..." autocomplete="off">
+        <div class="grid-header">
+            <div class="col">TIMESTAMP</div>
+            <div class="col">PROVIDER</div>
+            <div class="col" style="text-align:right;">ID</div>
+            <div class="col">LEVEL</div>
+            <div class="col">OPCODE</div>
+            <div class="col">TASK</div>
+            <div class="col">PAYLOAD_SUMMARY</div>
+        </div>
+
+        <div id="gridBody" class="grid-body">
+            <!-- Rows injected here -->
+        </div>
     </div>
 
-    <div class="data-grid-container">
-        <table id="eventsTable">
-            <thead>
-                <tr>
-                    <th class="col-time">TIMESTAMP</th>
-                    <th class="col-prov">PROVIDER</th>
-                    <th class="col-id">ID</th>
-                    <th class="col-data">PAYLOAD</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Rows injected here -->
-            </tbody>
-        </table>
+    <!-- Inspector Panel -->
+    <div id="inspector">
+        <div class="ins-header">
+            <span class="ins-title">EVENT_DETAIL</span>
+            <button class="btn-close" onclick="closeInspector()">DISMISS</button>
+        </div>
+        <div class="ins-content">
+            <div class="ins-section">
+                <div class="ins-label">DESCRIPTION</div>
+                <div id="ins-desc" class="ins-value" style="color: var(--accent-cyan);">---</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">CONTEXTUAL_DATA</div>
+                <div id="ins-data" class="ins-value">---</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">RAW_IDENTIFIERS</div>
+                <table class="kv-table" id="ins-meta"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mode Capsule -->
+    <div id="mode-capsule">
+        <button class="mode-btn" onclick="window.location.href='/ui/timeline.html'">Timeline</button>
+        <button class="mode-btn active" onclick="window.location.href='/ui/events.html'">Table</button>
+        <button class="mode-btn" onclick="window.location.href='/ui/index.html'">Config</button>
     </div>
 
     <script>
         const searchInput = document.getElementById('searchInput');
-        const tableBody = document.querySelector('#eventsTable tbody');
-        let lastQuery = "";
-        let pollingInterval = null;
+        const gridBody = document.getElementById('gridBody');
+        const inspector = document.getElementById('inspector');
 
-        // Decode base64 to string
-        function decodeBase64(str) {
-            try {
-                return atob(str);
-            } catch (e) {
-                return str;
-            }
-        }
+        let activeEvent = null;
+        let latestTimestamp = "0"; // Store as string to handle uint64 strictly
+        let currentQuery = "";
+        const MAX_ROWS = 20000;
 
-        // Format timestamp
         function formatTime(ns) {
-            // Go timestamp is raw uint64 (100ns units since 1601), converted to json?
-            // Wait, storage.go sends raw uint64.
-            // Actually storage.go json tag is `timestamp`.
-            // The implementation in Prune tells us it is FileTime.
-            // JS needs milliseconds since 1970.
-            // (FileTime - 116444736000000000) / 10000 = ms since 1970
-            const jsTime = (ns - 116444736000000000) / 10000;
-            return new Date(jsTime).toISOString().replace('T', ' ').slice(0, 19);
-        }
-
-        async function fetchEvents() {
-            const query = searchInput.value;
             try {
-                const res = await fetch(`/events/search?query=${encodeURIComponent(query)}`);
-                const events = await res.json();
-                renderTable(events);
-            } catch (e) {
-                console.error("Fetch error:", e);
-            }
+                const t = BigInt(ns);
+                const jsTime = Number((t - 116444736000000000n) / 10000n);
+                const d = new Date(jsTime);
+                if (isNaN(d.getTime())) return "INVALID_TIME";
+                return d.toLocaleTimeString([], { hour12: false }) + "." + d.getMilliseconds().toString().padStart(3, '0');
+            } catch (e) { return "ERR_TIME"; }
         }
 
-        function renderTable(events) {
-            tableBody.innerHTML = '';
-            // sort by time desc
-            events.sort((a, b) => b.timestamp - a.timestamp);
+        async function fetchEvents(isNewSearch = false) {
+            const query = searchInput.value;
+
+            // On new search, reset state
+            if (isNewSearch || query !== currentQuery) {
+                currentQuery = query;
+                latestTimestamp = "0";
+                gridBody.innerHTML = '';
+            }
+
+            try {
+                // Fetch only events newer than latestTimestamp
+                const res = await fetch(`/events/search?query=${encodeURIComponent(query)}&since=${latestTimestamp}`);
+                if (!res.ok) return;
+
+                let events = await res.json();
+                if (!events || events.length === 0) return;
+
+                // Sort incoming batch: Newest requests come last? 
+                // Storage.go search usually returns appended (chronological).
+                // We want to PREPEND to table (Desc Time).
+                // So we sort batch ASCENDING time (oldest -> newest), 
+                // then update latestTimestamp, then Prepend them in REVERSE order? 
+                // Wait.
+                // If I get [E1(t=100), E2(t=101)], I should prepend E2 then E1?
+                // Visual Order: [E2, E1, E0...]
+                // So I need to iterate the batch and prepend such that the newest ends up on top.
+
+                // Sort batch by timestamp desc first
+                events.sort((a, b) => {
+                    const ta = BigInt(a.timestamp);
+                    const tb = BigInt(b.timestamp);
+                    return (ta < tb) ? 1 : (ta > tb) ? -1 : 0;
+                });
+
+                // Update latest timestamp from the absolute newest event in this batch
+                // (which is at index 0 because we sorted desc)
+                const newestInBatch = events[0].timestamp;
+                if (BigInt(newestInBatch) > BigInt(latestTimestamp)) {
+                    latestTimestamp = newestInBatch.toString();
+                }
+
+                renderBatch(events);
+
+            } catch (e) { console.error(e); }
+        }
+
+        function renderBatch(events) {
+            const fragment = document.createDocumentFragment();
 
             events.forEach(evt => {
-                const row = document.createElement('tr');
+                try {
+                    // Logic to extract data (same as before)
+                    let dataObj = evt.data;
+                    if (typeof dataObj === 'string') {
+                        try { dataObj = JSON.parse(atob(dataObj)); }
+                        catch (e) { try { dataObj = JSON.parse(dataObj); } catch (e2) { dataObj = { raw: dataObj }; } }
+                    }
 
-                const timeCell = document.createElement('td');
-                timeCell.className = 'col-time';
-                timeCell.textContent = formatTime(evt.timestamp);
+                    const level = dataObj.LevelStr || dataObj.Level || '-';
+                    const lvlClass = (level.toString().toLowerCase().includes('error') || level.toString().toLowerCase().includes('critical')) ? 'lvl-error' :
+                        (level.toString().toLowerCase().includes('warning')) ? 'lvl-warning' : 'lvl-info';
 
-                const provCell = document.createElement('td');
-                provCell.className = 'col-prov';
-                provCell.textContent = evt.provider_name || evt.provider_id; // Fallback
+                    const row = document.createElement('div');
+                    row.className = `log-row`; // Active handled by click
+                    row.onclick = (e) => openInspector(evt, dataObj, e.currentTarget);
 
-                const idCell = document.createElement('td');
-                idCell.className = 'col-id';
-                idCell.textContent = evt.event_id;
+                    // Provider hex fallback
+                    let provDisplay = evt.provider_name || "";
+                    if (!provDisplay && evt.provider_id) {
+                        if (Array.isArray(evt.provider_id)) provDisplay = evt.provider_id.slice(0, 4).map(b => b.toString(16).padStart(2, '0')).join('');
+                        else provDisplay = evt.provider_id.toString().slice(0, 8);
+                    }
 
-                const dataCell = document.createElement('td');
-                dataCell.className = 'col-data';
-                // Data is base64 in JSON because []byte
-                dataCell.textContent = decodeBase64(evt.data);
+                    // Summary construction
+                    let summary = "";
+                    const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
+                    if (typeof dataObj === 'object' && dataObj !== null) {
+                        for (const [k, v] of Object.entries(dataObj)) {
+                            if (!ignoreKeys.includes(k)) summary += `${k}=${v} `;
+                        }
+                    }
+                    if (!summary) summary = JSON.stringify(dataObj).slice(0, 100);
 
-                row.appendChild(timeCell);
-                row.appendChild(provCell);
-                row.appendChild(idCell);
-                row.appendChild(dataCell);
+                    row.innerHTML = `
+                        <div class="col col-time">${formatTime(evt.timestamp)}</div>
+                        <div class="col col-prov">${provDisplay}</div>
+                        <div class="col col-id">${evt.event_id}</div>
+                        <div class="col col-level ${lvlClass}">${level}</div>
+                        <div class="col">${dataObj.OpcodeStr || dataObj.Opcode || '-'}</div>
+                        <div class="col">${dataObj.TaskStr || dataObj.Task || '-'}</div>
+                        <div class="col col-data">${summary}</div>
+                    `;
 
-                tableBody.appendChild(row);
+                    /* Prepend to fragment. Wait, if I append events[0](newest) to fragment, then events[1](older),
+                       fragment will have [Newest, Older].
+                       When I prepend fragment to gridBody, it puts [Newest, Older] before [CurrentTop].
+                       Result: [Newest, Older, CurrentTop].
+                       This matches Descending Sort. Correct.
+                    */
+                    fragment.appendChild(row);
+
+                } catch (err) { console.error(err); }
             });
+
+            // Insert new rows at the TOP
+            gridBody.prepend(fragment);
+
+            // Prune old rows (DOM Capping)
+            while (gridBody.children.length > MAX_ROWS) {
+                gridBody.removeChild(gridBody.lastChild);
+            }
         }
 
-        // Debounce search
+        function openInspector(evt, data, element) {
+            activeEvent = evt;
+            inspector.classList.add('open');
+            document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
+            element.classList.add('active');
+
+            document.getElementById('ins-desc').innerText = data.Description || "NO_EXTENDED_DESCRIPTION_FOUND";
+
+            const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
+            let payloadHtml = '<table class="kv-table">';
+            let hasData = false;
+            if (data) {
+                for (const [k, v] of Object.entries(data)) {
+                    if (!ignoreKeys.includes(k)) {
+                        payloadHtml += `<tr><td class="kv-key">${k}</td><td class="kv-val">${v}</td></tr>`;
+                        hasData = true;
+                    }
+                }
+            }
+            payloadHtml += '</table>';
+            document.getElementById('ins-data').innerHTML = hasData ? payloadHtml : "<NO_PAYLOAD_SCHEMA>";
+
+            let metaHtml = `
+                <tr><td class="kv-key">TIMESTAMP</td><td class="kv-val">${evt.timestamp}</td></tr>
+                <tr><td class="kv-key">EVENT_ID</td><td class="kv-val">${evt.event_id}</td></tr>
+                <tr><td class="kv-key">VERSION</td><td class="kv-val">${data?.Version || 0}</td></tr>
+                <tr><td class="kv-key">KEYWORD</td><td class="kv-val">${data?.Keyword || '0x0'}</td></tr>
+            `;
+            document.getElementById('ins-meta').innerHTML = metaHtml;
+        }
+
+        function closeInspector() {
+            inspector.classList.remove('open');
+            activeEvent = null;
+            document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
+        }
+
         let timeout = null;
         searchInput.addEventListener('input', () => {
             clearTimeout(timeout);
-            timeout = setTimeout(fetchEvents, 300);
+            timeout = setTimeout(() => fetchEvents(true), 300);
         });
 
-        // Initial load and polling
-        fetchEvents();
-        pollingInterval = setInterval(fetchEvents, 2000); // 2s polling
-    </script>
+        // Initial load
+        fetchEvents(true);
+        // Poll every 1s (Faster now that it's incremental)
+        setInterval(() => fetchEvents(false), 1000);
 
+    </script>
 </body>
 
 </html>
