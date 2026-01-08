@@ -178,14 +178,86 @@ func (s *Storage) Search(query string, since uint64) []Event {
 	defer s.mu.RUnlock()
 
 	results := []Event{}
+	// Case-insensitive flexible match
+	// We could parse specific fields (e.g. "provider:foo") but for now
+	// we will do a simple "contains" on specific fields.
+
 	for _, evt := range s.ramBuffer {
 		if since > 0 && evt.Timestamp <= since {
 			continue
 		}
-		// Match ProviderID or empty query returns all
+
 		if query == "" {
 			results = append(results, evt)
+			continue
+		}
+
+		// Check Provider Name
+		if containsIgnoreCase(evt.ProviderName, query) {
+			results = append(results, evt)
+			continue
+		}
+
+		// Check EventID
+		if fmt.Sprintf("%d", evt.EventId) == query {
+			results = append(results, evt)
+			continue
+		}
+
+		// Check Data (Payload) - assuming simple string search on raw bytes
+		// This might be expensive for large buffers, but acceptable for RAM implementation.
+		if containsIgnoreCase(string(evt.Data), query) {
+			results = append(results, evt)
+			continue
 		}
 	}
 	return results
+}
+
+func containsIgnoreCase(s, substr string) bool {
+	// Simple localized check or just use strings.Contains with ToLower
+	// For efficiency we might want to avoid ToLower allocs in tight loop,
+	// but for this MVP standard strings package is fine.
+	// Note: We need to import "strings" package if not already imported.
+	// Checking imports... "strings" is NOT imported in storage.go currently.
+	// I will add the helper here but I also need to update imports.
+
+	// actually, let's just do a naive implementation or rely on user adding import?
+	// The tool requires the code to compile. I should check imports.
+	// I'll make this function self-contained or use a helper that does byte comparison if I want to avoid allocating.
+	// But `strings` is standard. I'll just rely on the tool to let me add imports or I will add it now.
+	// Wait, `bytes.Contains` might be better for Data.
+
+	// Let's use a simple helper here.
+	sLen := len(s)
+	subLen := len(substr)
+	if subLen > sLen {
+		return false
+	}
+	if subLen == 0 {
+		return true
+	}
+
+	// Naive case insensitive search
+	for i := 0; i <= sLen-subLen; i++ {
+		match := true
+		for j := 0; j < subLen; j++ {
+			c1 := s[i+j]
+			c2 := substr[j]
+			if c1 >= 'A' && c1 <= 'Z' {
+				c1 += 'a' - 'A'
+			}
+			if c2 >= 'A' && c2 <= 'Z' {
+				c2 += 'a' - 'A'
+			}
+			if c1 != c2 {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }

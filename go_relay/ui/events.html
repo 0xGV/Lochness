@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Lochness // EVENTS</title>
+    <style>
+        :root {
+            --bg-color: #050505;
+            --term-green: #00ff41;
+            --term-dim: #008F11;
+            --term-amber: #ffb000;
+            --grid-line: #1a1a1a;
+            --scanline: rgba(0, 255, 65, 0.05);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--term-green);
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Scanline effect */
+        body::before {
+            content: " ";
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        header {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--term-dim);
+            padding-bottom: 10px;
+            z-index: 3;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 5px var(--term-green);
+        }
+
+        nav a {
+            color: var(--term-dim);
+            text-decoration: none;
+            margin-right: 15px;
+            font-weight: bold;
+        }
+
+        nav a:hover,
+        nav a.active {
+            color: var(--term-green);
+            text-shadow: 0 0 5px var(--term-green);
+        }
+
+        .search-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            z-index: 3;
+        }
+
+        .cmd-input {
+            background: transparent;
+            border: 1px solid var(--term-dim);
+            color: var(--term-green);
+            font-family: inherit;
+            padding: 10px;
+            flex-grow: 1;
+            font-size: 16px;
+        }
+
+        .cmd-input:focus {
+            outline: none;
+            border-color: var(--term-green);
+            box-shadow: 0 0 10px var(--term-dim);
+        }
+
+        .data-grid-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            border: 1px solid var(--grid-line);
+            position: relative;
+            z-index: 3;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        th {
+            text-align: left;
+            padding: 10px;
+            border-bottom: 1px solid var(--term-green);
+            position: sticky;
+            top: 0;
+            background-color: var(--bg-color);
+            text-transform: uppercase;
+            color: var(--term-amber);
+        }
+
+        td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--grid-line);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 300px;
+        }
+
+        tr:hover {
+            background-color: rgba(0, 255, 65, 0.1);
+        }
+
+        .col-time {
+            width: 180px;
+            color: var(--term-dim);
+        }
+
+        .col-prov {
+            width: 250px;
+            font-weight: bold;
+        }
+
+        .col-id {
+            width: 80px;
+            text-align: right;
+            color: var(--term-amber);
+        }
+
+        .col-data {
+            color: #cccccc;
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #000;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--term-dim);
+            border: 1px solid #000;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--term-green);
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>> SYSTEM_LOGS</h1>
+        <nav>
+            <a href="index.html">DASHBOARD</a>
+            <a href="events.html" class="active">EVENTS</a>
+            <a href="timeline.html">TIMELINE</a>
+        </nav>
+    </header>
+
+    <div class="search-container">
+        <span style="padding: 10px; font-weight: bold;">></span>
+        <input type="text" id="searchInput" class="cmd-input" placeholder="Enter query string..." autocomplete="off">
+    </div>
+
+    <div class="data-grid-container">
+        <table id="eventsTable">
+            <thead>
+                <tr>
+                    <th class="col-time">TIMESTAMP</th>
+                    <th class="col-prov">PROVIDER</th>
+                    <th class="col-id">ID</th>
+                    <th class="col-data">PAYLOAD</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Rows injected here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const tableBody = document.querySelector('#eventsTable tbody');
+        let lastQuery = "";
+        let pollingInterval = null;
+
+        // Decode base64 to string
+        function decodeBase64(str) {
+            try {
+                return atob(str);
+            } catch (e) {
+                return str;
+            }
+        }
+
+        // Format timestamp
+        function formatTime(ns) {
+            // Go timestamp is raw uint64 (100ns units since 1601), converted to json?
+            // Wait, storage.go sends raw uint64.
+            // Actually storage.go json tag is `timestamp`.
+            // The implementation in Prune tells us it is FileTime.
+            // JS needs milliseconds since 1970.
+            // (FileTime - 116444736000000000) / 10000 = ms since 1970
+            const jsTime = (ns - 116444736000000000) / 10000;
+            return new Date(jsTime).toISOString().replace('T', ' ').slice(0, 19);
+        }
+
+        async function fetchEvents() {
+            const query = searchInput.value;
+            try {
+                const res = await fetch(`/events/search?query=${encodeURIComponent(query)}`);
+                const events = await res.json();
+                renderTable(events);
+            } catch (e) {
+                console.error("Fetch error:", e);
+            }
+        }
+
+        function renderTable(events) {
+            tableBody.innerHTML = '';
+            // sort by time desc
+            events.sort((a, b) => b.timestamp - a.timestamp);
+
+            events.forEach(evt => {
+                const row = document.createElement('tr');
+
+                const timeCell = document.createElement('td');
+                timeCell.className = 'col-time';
+                timeCell.textContent = formatTime(evt.timestamp);
+
+                const provCell = document.createElement('td');
+                provCell.className = 'col-prov';
+                provCell.textContent = evt.provider_name || evt.provider_id; // Fallback
+
+                const idCell = document.createElement('td');
+                idCell.className = 'col-id';
+                idCell.textContent = evt.event_id;
+
+                const dataCell = document.createElement('td');
+                dataCell.className = 'col-data';
+                // Data is base64 in JSON because []byte
+                dataCell.textContent = decodeBase64(evt.data);
+
+                row.appendChild(timeCell);
+                row.appendChild(provCell);
+                row.appendChild(idCell);
+                row.appendChild(dataCell);
+
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Debounce search
+        let timeout = null;
+        searchInput.addEventListener('input', () => {
+            clearTimeout(timeout);
+            timeout = setTimeout(fetchEvents, 300);
+        });
+
+        // Initial load and polling
+        fetchEvents();
+        pollingInterval = setInterval(fetchEvents, 2000); // 2s polling
+    </script>
+
+</body>
+
+</html>

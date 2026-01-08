@@ -1,7 +1,9 @@
 #define INITGUID
 #include "ETWWorker.h"
 #include <evntprov.h>
+#include <windows.h>
 #include <winevt.h>
+
 #pragma comment(lib, "wevtapi.lib")
 #include <iostream>
 #include <map>

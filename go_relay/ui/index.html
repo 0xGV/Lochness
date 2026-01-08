@@ -135,7 +135,17 @@
 </head>
 
 <body>
-    <div class="container">
+    <header
+        style="width: 100%; position: absolute; top: 0; left: 0; background: var(--bg-color); padding: 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: center; gap: 20px;">
+        <nav style="display: flex; gap: 20px;">
+            <a href="index.html"
+                style="color: var(--accent-color); text-decoration: none; font-weight: bold; border-bottom: 2px solid var(--accent-color);">DASHBOARD</a>
+            <a href="events.html" style="color: var(--text-color); text-decoration: none;">EVENTS</a>
+            <a href="timeline.html" style="color: var(--text-color); text-decoration: none;">TIMELINE</a>
+        </nav>
+    </header>
+
+    <div class="container" style="margin-top: 80px;">
         <h1>Lochness Providers</h1>
         <div id="provider-list" class="provider-list">
             <!-- Dynamic items here -->
