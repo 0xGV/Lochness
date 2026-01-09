@@ -109,7 +109,7 @@
 
         .grid-header {
             display: grid;
-            grid-template-columns: 180px 220px 80px 100px 150px 150px 1fr;
+            grid-template-columns: 180px 220px 80px 100px 120px 120px 150px 1fr;
             gap: 15px;
             padding: 10px 15px;
             border-bottom: 1px solid var(--term-green);
@@ -131,7 +131,7 @@
 
         .log-row {
             display: grid;
-            grid-template-columns: 180px 220px 80px 100px 150px 150px 1fr;
+            grid-template-columns: 180px 220px 80px 100px 120px 120px 150px 1fr;
             gap: 15px;
             padding: 8px 15px;
             border-bottom: 1px solid var(--grid-line);
@@ -432,8 +432,7 @@
             <div class="col">PROVIDER</div>
             <div class="col" style="text-align:right;">ID</div>
             <div class="col">LEVEL</div>
-            <div class="col">OPCODE</div>
-            <div class="col">TASK</div>
+            <div class="col">KEYWORD</div>
             <div class="col">PAYLOAD_SUMMARY</div>
         </div>
 
@@ -536,8 +535,6 @@
             } catch (e) { console.error(e); }
         }
 
-
-
         function renderPage(events) {
             gridBody.innerHTML = '';
             const fragment = document.createDocumentFragment();
@@ -557,7 +554,17 @@
                     catch (e) { try { dataObj = JSON.parse(dataObj); } catch (e2) { dataObj = { raw: dataObj }; } }
                 }
 
-                const level = dataObj.LevelStr || dataObj.Level || '-';
+                let level = dataObj.LevelStr;
+                if (!level || !isNaN(level)) {
+                    const l = dataObj.Level;
+                    if (l == 1) level = "Critical";
+                    else if (l == 2) level = "Error";
+                    else if (l == 3) level = "Warning";
+                    else if (l == 4) level = "Information";
+                    else if (l == 5) level = "Verbose";
+                    else level = l || '-';
+                }
+
                 const lvlClass = (level.toString().toLowerCase().includes('error') || level.toString().toLowerCase().includes('critical')) ? 'lvl-error' :
                     (level.toString().toLowerCase().includes('warning')) ? 'lvl-warning' : 'lvl-info';
 
@@ -568,7 +575,7 @@
                 let provDisplay = evt.provider_name || "";
                 if (!provDisplay && evt.provider_id) {
                     if (Array.isArray(evt.provider_id)) provDisplay = evt.provider_id.slice(0, 4).map(b => b.toString(16).padStart(2, '0')).join('');
-                    else provDisplay = evt.provider_id.toString().slice(0, 8);
+                    else provDisplay = (typeof evt.provider_id === 'string') ? evt.provider_id : JSON.stringify(evt.provider_id).slice(0, 8);
                 }
 
                 let summary = "";
@@ -585,8 +592,7 @@
                     <div class="col col-prov">${provDisplay}</div>
                     <div class="col col-id">${evt.event_id}</div>
                     <div class="col col-level ${lvlClass}">${level}</div>
-                    <div class="col">${dataObj.OpcodeStr || dataObj.Opcode || '-'}</div>
-                    <div class="col">${dataObj.TaskStr || dataObj.Task || '-'}</div>
+                    <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.Keyword || '-'}</div>
                     <div class="col col-data">${summary}</div>
                 `;
                 return row;
@@ -650,6 +656,31 @@
             fetchEvents();
         }
 
+        function parseEventData(data) {
+            if (!data) return '<div style="color:#666; font-style:italic;">No Payload Data</div>';
+
+            if (typeof data === 'object') {
+                if (Object.keys(data).length === 0) {
+                    return '<div style="color:#666; font-style:italic;">Empty Payload</div>';
+                }
+                let html = '<table class="kv-table">';
+                for (const [k, v] of Object.entries(data)) {
+                    let valStr = v;
+                    if (typeof v === 'object' && v !== null) {
+                        try {
+                            valStr = JSON.stringify(v);
+                        } catch (e) {
+                            valStr = '[Complex Object]';
+                        }
+                    }
+                    html += `<tr><td class="kv-key">${k}</td><td class="kv-val">${valStr}</td></tr>`;
+                }
+                html += '</table>';
+                return html;
+            }
+            return `<div style="color:var(--term-green); white-space:pre-wrap;">${data}</div>`;
+        }
+
         function openInspector(wrap, element) {
             activeEvent = wrap.evt;
             const data = wrap.data;
@@ -659,27 +690,38 @@
             document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
             element.classList.add('active');
 
-            document.getElementById('ins-desc').innerText = data.Description || "NO_EXTENDED_DESCRIPTION_FOUND";
+            // Format Timestamp
+            let timeStr = "INVALID";
+            try {
+                const t = BigInt(evt.timestamp);
+                const jsTime = Number((t - 116444736000000000n) / 10000n);
+                const d = new Date(jsTime);
+                timeStr = d.toLocaleString() + " : " + d.getMilliseconds() + "ms";
+            } catch (e) { timeStr = evt.timestamp; }
 
-            const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
-            let payloadHtml = '<table class="kv-table">';
-            if (data) {
-                for (const [k, v] of Object.entries(data)) {
-                    if (!ignoreKeys.includes(k)) {
-                        payloadHtml += `<tr><td class="kv-key">${k}</td><td class="kv-val">${v}</td></tr>`;
-                    }
-                }
-            }
-            payloadHtml += '</table>';
-            document.getElementById('ins-data').innerHTML = payloadHtml;
+            const providerName = evt.provider_name || (typeof evt.provider_id === 'string' ? evt.provider_id : "UNKNOWN");
+            const formattedData = parseEventData(data);
 
-            let metaHtml = `
-                <tr><td class="kv-key">TIMESTAMP</td><td class="kv-val">${evt.timestamp}</td></tr>
-                <tr><td class="kv-key">EVENT_ID</td><td class="kv-val">${evt.event_id}</td></tr>
-                <tr><td class="kv-key">VERSION</td><td class="kv-val">${data?.Version || 0}</td></tr>
-                <tr><td class="kv-key">KEYWORD</td><td class="kv-val">${data?.Keyword || '0x0'}</td></tr>
+            const contentHtml = `
+            <div class="ins-section">
+                <div class="ins-label">TEMPORAL MARKER</div>
+                <div class="ins-value">${timeStr}</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">ORIGIN PROVIDER</div>
+                <div class="ins-value">${providerName}</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">EVENT IDENTIFIER</div>
+                <div class="ins-value">${evt.event_id}</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">STRUCTURED DATA</div>
+                <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.05);">${formattedData}</div>
+            </div>
             `;
-            document.getElementById('ins-meta').innerHTML = metaHtml;
+
+            document.querySelector('.ins-content').innerHTML = contentHtml;
         }
 
         function closeInspector() {

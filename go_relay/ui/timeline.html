@@ -1556,44 +1556,32 @@
             ctx.setLineDash([]);
         }
 
-        function parseEventData(str) {
-            try {
-                const decoded = atob(str);
-                let dataObj;
+        function parseEventData(data) {
+            if (!data) return '<div style="color:#666; font-style:italic;">No Payload Data</div>';
 
-                // Try JSON first
-                try {
-                    dataObj = JSON.parse(decoded);
-                } catch (e) {
-                    // Not JSON, handle as old key=value format
-                    const text = decoded;
-                    const lines = text.split(/[\n\r]+/);
-                    const pairs = [];
-                    lines.forEach(line => {
-                        const trimmed = line.trim();
-                        if (!trimmed) return;
-                        const eqIndex = trimmed.indexOf('=');
-                        if (eqIndex > 0) {
-                            pairs.push({ k: trimmed.substring(0, eqIndex).trim(), v: trimmed.substring(eqIndex + 1).trim() });
-                        }
-                    });
-                    if (pairs.length === 0) return `<div style="color:var(--accent-green); white-space:pre-wrap;">${text}</div>`;
-                    let html = '<table class="kv-table">';
-                    pairs.forEach(p => { html += `<tr><td class="kv-key">${p.k}</td><td class="kv-val">${p.v}</td></tr>`; });
-                    html += '</table>';
-                    return html;
+            // If data is already an object (which it should be from json.RawMessage), render directly
+            if (typeof data === 'object') {
+                if (Object.keys(data).length === 0) {
+                    return '<div style="color:#666; font-style:italic;">Empty Payload</div>';
                 }
-
-                // It is JSON, render table
                 let html = '<table class="kv-table">';
-                for (const [k, v] of Object.entries(dataObj)) {
-                    html += `<tr><td class="kv-key">${k}</td><td class="kv-val">${v}</td></tr>`;
+                for (const [k, v] of Object.entries(data)) {
+                    let valStr = v;
+                    if (typeof v === 'object' && v !== null) {
+                        try {
+                            valStr = JSON.stringify(v);
+                        } catch (e) {
+                            valStr = '[Complex Object]';
+                        }
+                    }
+                    html += `<tr><td class="kv-key">${k}</td><td class="kv-val">${valStr}</td></tr>`;
                 }
                 html += '</table>';
                 return html;
-            } catch (e) {
-                return str;
             }
+
+            // Fallback for legacy strings or unexpected types
+            return `<div style="color:var(--accent-green); white-space:pre-wrap;">${data}</div>`;
         }
 
         let currentTelescopeIndex = -1;

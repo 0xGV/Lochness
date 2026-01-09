@@ -9,9 +9,11 @@
 #include <map>
 #include <strsafe.h>
 
-// Include nlohmann/json
-#include "nlohmann/json.hpp"
+// Include nlohmann/json definition via header, but we need the alias here
 using json = nlohmann::json;
+
+#include <wincrypt.h>
+#pragma comment(lib, "crypt32.lib")
 
 ETWWorker::ETWWorker()
     : m_sessionHandle(0), m_traceHandle(INVALID_PROCESSTRACE_HANDLE),
@@ -64,6 +66,12 @@ void ETWWorker::Start(const std::wstring &sessionName) {
   std::wcout << L"Starting ETWWorker for session: " << sessionName << std::endl;
   m_sessionName = sessionName;
   m_running = true;
+
+  // Start Background Workers (4 threads)
+  for (int i = 0; i < 4; i++) {
+    m_workerThreads.emplace_back(&ETWWorker::WorkerLoop, this);
+  }
+
   m_traceThread = std::thread(&ETWWorker::TraceLoop, this);
 }
 
@@ -92,6 +100,14 @@ void ETWWorker::Stop() {
   if (m_traceThread.joinable()) {
     m_traceThread.join();
   }
+
+  // Stop Workers
+  m_eventQueue.NotifyAll();
+  for (auto &t : m_workerThreads) {
+    if (t.joinable())
+      t.join();
+  }
+  m_workerThreads.clear();
 }
 
 void ETWWorker::EnableProvider(const std::wstring &providerGuid) {
@@ -413,7 +429,8 @@ std::wstring ETWWorker::GetProviderMetadata(const std::wstring &providerGuid,
       std::wstring levelStr = GetFormatMessage(EvtFormatMessageLevel);
       std::wstring opcodeStr = GetFormatMessage(EvtFormatMessageOpcode);
       std::wstring taskStr = GetFormatMessage(EvtFormatMessageTask);
-      std::wstring keyword = GetFormatMessage(EvtFormatMessageKeyword);
+      std::wstring keywordRaw = GetFormatMessage(EvtFormatMessageKeyword);
+      std::wstring keyword = CleanKeyword(keywordRaw);
 
       // Fallback Lookups
       if (opcodeStr.empty() && opcodeMap.count(opcodeId))
@@ -544,6 +561,21 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
       if (pInfo) {
         status = TdhGetEventInformation(pEvent, 0, NULL, pInfo, &bufferSize);
         if (status == ERROR_SUCCESS) {
+          CachedEventSchema schema;
+
+          // Extract Strings
+          if (pInfo->KeywordsNameOffset)
+            schema.KeywordStr = CleanKeyword(std::wstring(
+                (LPWSTR)((PBYTE)pInfo + pInfo->KeywordsNameOffset)));
+
+          if (pInfo->OpcodeNameOffset)
+            schema.OpcodeStr =
+                std::wstring((LPWSTR)((PBYTE)pInfo + pInfo->OpcodeNameOffset));
+
+          if (pInfo->TaskNameOffset)
+            schema.TaskStr =
+                std::wstring((LPWSTR)((PBYTE)pInfo + pInfo->TaskNameOffset));
+
           std::vector<PropertyMetadata> props;
 
           for (ULONG i = 0; i < pInfo->TopLevelPropertyCount; i++) {
@@ -576,7 +608,8 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
             }
             props.push_back(meta);
           }
-          m_schemaCache[key] = props;
+          schema.Properties = props;
+          m_schemaCache[key] = schema;
           it = m_schemaCache.find(key);
         }
         free(pInfo);
@@ -594,7 +627,17 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   PBYTE pData = (PBYTE)pEvent->UserData;
   PBYTE pEnd = pData + pEvent->UserDataLength;
 
-  const auto &props = it->second;
+  const auto &schema = it->second;
+  const auto &props = schema.Properties;
+
+  // Inject Metadata
+  if (!schema.KeywordStr.empty())
+    jObj["Keyword"] = ToUtf8(schema.KeywordStr);
+  if (!schema.OpcodeStr.empty())
+    jObj["OpcodeStr"] = ToUtf8(schema.OpcodeStr);
+  if (!schema.TaskStr.empty())
+    jObj["TaskStr"] = ToUtf8(schema.TaskStr);
+
   for (size_t i = 0; i < props.size(); ++i) {
     if (pData >= pEnd)
       break;
@@ -716,26 +759,222 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
     }
   }
 
-  // 4. Send Packet (Header + JSON)
-  // Dump to minified string
-  std::string jsonPayload = jObj.dump();
+  // 4. Push to Async Queue instead of Immediate Send
+  EnrichedEventFrame frame;
+  frame.Header.Timestamp = pEvent->EventHeader.TimeStamp.QuadPart;
+  frame.Header.ProviderId = pEvent->EventHeader.ProviderId;
+  frame.Header.EventId = pEvent->EventHeader.EventDescriptor.Id;
+  frame.Header.PayloadSize = 0;     // Calculated after enrichment/serialization
+  frame.JsonBody = std::move(jObj); // Transfer JSON object
 
-  if (!jsonPayload.empty()) {
-    std::vector<char> sendBuf;
-    sendBuf.resize(sizeof(PacketHeader) + jsonPayload.size());
+  m_eventQueue.Push(frame);
+}
 
-    PacketHeader *h = (PacketHeader *)sendBuf.data();
-    h->Timestamp = pEvent->EventHeader.TimeStamp.QuadPart;
-    h->ProviderId = pEvent->EventHeader.ProviderId;
-    h->EventId = pEvent->EventHeader.EventDescriptor.Id;
-    h->PayloadSize = (unsigned __int32)jsonPayload.size();
+// -----------------------------------------------------------------------
+// Async Worker Logic
+// -----------------------------------------------------------------------
 
-    // Copy payload after header
-    memcpy(sendBuf.data() + sizeof(PacketHeader), jsonPayload.data(),
-           jsonPayload.size());
+void ETWWorker::WorkerLoop() {
+  while (m_running) {
+    EnrichedEventFrame frame;
+    // Wait for event or stop signal
+    m_eventQueue.WaitAndPop(frame, m_running);
 
-    DWORD bytesWritten;
-    WriteFile(m_hPipe, sendBuf.data(), (DWORD)sendBuf.size(), &bytesWritten,
-              NULL);
+    if (!m_running && m_eventQueue.Empty()) {
+      break;
+    }
+
+    // Double check if we got a frame (WaitAndPop might return empty on stop)
+    if (frame.JsonBody.is_null())
+      continue;
+
+    // ----------------------------------------------------------------
+    // Enrichment Phase
+    // ----------------------------------------------------------------
+
+    // Look for File Paths to Enrich
+    // Common keys: "FileName", "ImageName", "Path", "ImagePath"
+    std::string pathToCheck;
+    if (frame.JsonBody.contains("FileName")) {
+      pathToCheck = frame.JsonBody["FileName"];
+    } else if (frame.JsonBody.contains("ImageName")) {
+      pathToCheck = frame.JsonBody["ImageName"];
+    } else if (frame.JsonBody.contains("Path")) {
+      pathToCheck = frame.JsonBody["Path"];
+    }
+
+    // If we found a path, compute hashes
+    if (!pathToCheck.empty()) {
+      std::wstring widePath = ToWide(pathToCheck);
+
+      // Very basic validation (skip pipes, etc)
+      if (widePath.find(L"\\Device\\HarddiskVolume") == 0 ||
+          widePath.find(L"C:") != std::string::npos) {
+        std::string md5, sha1, sha256;
+        if (ComputeFileHashes(widePath, md5, sha1, sha256)) {
+          json hashes;
+          hashes["md5"] = md5;
+          hashes["sha1"] = sha1;
+          hashes["sha256"] = sha256;
+          frame.JsonBody["hashes"] = hashes;
+        }
+      }
+    }
+
+    // ----------------------------------------------------------------
+    // Serialization & Send Phase
+    // ----------------------------------------------------------------
+    std::string jsonPayload = frame.JsonBody.dump();
+    if (!jsonPayload.empty()) {
+      std::vector<char> sendBuf;
+      sendBuf.resize(sizeof(PacketHeader) + jsonPayload.size());
+
+      PacketHeader *h = (PacketHeader *)sendBuf.data();
+      h->Timestamp = frame.Header.Timestamp;
+      h->ProviderId = frame.Header.ProviderId;
+      h->EventId = frame.Header.EventId;
+      h->PayloadSize = (unsigned __int32)jsonPayload.size();
+
+      memcpy(sendBuf.data() + sizeof(PacketHeader), jsonPayload.data(),
+             jsonPayload.size());
+
+      // Lock pipe for writing
+      {
+        std::lock_guard<std::mutex> lock(m_pipeMutex);
+        if (m_hPipe != INVALID_HANDLE_VALUE) {
+          DWORD bytesWritten;
+          WriteFile(m_hPipe, sendBuf.data(), (DWORD)sendBuf.size(),
+                    &bytesWritten, NULL);
+        }
+      }
+    }
   }
+}
+
+// Helper to clean keyword string
+std::wstring ETWWorker::CleanKeyword(std::wstring k) {
+  if (k.empty())
+    return k;
+  if (k.size() >= 2 && k.front() == L'{' && k.back() == L'}')
+    k = k.substr(1, k.size() - 2);
+  if (k.size() >= 2 && k.substr(0, 2) == L", ")
+    k = k.substr(2);
+
+  std::wstring res;
+  std::wstring del = L", ";
+  std::wstring rep = L" | ";
+  size_t pos = 0, prev = 0;
+  while ((pos = k.find(del, prev)) != std::wstring::npos) {
+    res += k.substr(prev, pos - prev) + rep;
+    prev = pos + del.length();
+  }
+  res += k.substr(prev);
+  return res;
+}
+
+// Helper to calculate hashes logic
+bool ETWWorker::ComputeFileHashes(const std::wstring &path, std::string &md5,
+                                  std::string &sha1, std::string &sha256) {
+
+  // 1. Check Cache
+  {
+    std::lock_guard<std::mutex> lock(m_fileCacheMutex);
+    auto it = m_fileHashCache.find(path);
+    if (it != m_fileHashCache.end()) {
+      // Verify timestamp haven't changed (basic consistency)
+      // For now, simple return cached values
+      md5 = it->second.Md5;
+      sha1 = it->second.Sha1;
+      sha256 = it->second.Sha256;
+      return true;
+    }
+  }
+
+  // 2. Open File
+  HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
+                             OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+  if (hFile == INVALID_HANDLE_VALUE)
+    return false;
+
+  // 3. Prep Crypto
+  HCRYPTPROV hProv = 0;
+  HCRYPTHASH hHashMd5 = 0;
+  HCRYPTHASH hHashSha1 = 0;
+  HCRYPTHASH hHashSha256 =
+      0; // Only supporting MD5/SHA1 with basic Provider, need Enhanced provider
+         // for SHA256? Actually default PROV_RSA_AES supports SHA256 usually in
+         // modern Windows. Or use CNG (BCrypt). Let's stick to simple HCRYPT
+         // for now, checking support.
+
+  if (!CryptAcquireContext(&hProv, NULL, NULL, PROV_RSA_AES,
+                           CRYPT_VERIFYCONTEXT)) {
+    CloseHandle(hFile);
+    return false;
+  }
+
+  CryptCreateHash(hProv, CALG_MD5, 0, 0, &hHashMd5);
+  CryptCreateHash(hProv, CALG_SHA1, 0, 0, &hHashSha1);
+  CryptCreateHash(hProv, CALG_SHA_256, 0, 0, &hHashSha256);
+
+  // 4. Read Loop
+  const int BUF_SIZE = 4096;
+  BYTE buffer[BUF_SIZE];
+  DWORD bytesRead = 0;
+  bool success = false;
+
+  while (ReadFile(hFile, buffer, BUF_SIZE, &bytesRead, NULL)) {
+    if (bytesRead == 0)
+      break;
+    if (hHashMd5)
+      CryptHashData(hHashMd5, buffer, bytesRead, 0);
+    if (hHashSha1)
+      CryptHashData(hHashSha1, buffer, bytesRead, 0);
+    if (hHashSha256)
+      CryptHashData(hHashSha256, buffer, bytesRead, 0);
+  }
+
+  auto GetHashStr = [](HCRYPTHASH h) -> std::string {
+    if (!h)
+      return "";
+    DWORD cbHash = 0;
+    DWORD dwCount = sizeof(cbHash);
+    // Get size first? commonly known.
+    if (CryptGetHashParam(h, HP_HASHVAL, NULL, &cbHash, 0)) {
+      std::vector<BYTE> rgbHash(cbHash);
+      if (CryptGetHashParam(h, HP_HASHVAL, rgbHash.data(), &cbHash, 0)) {
+        const char hex[] = "0123456789abcdef";
+        std::string str;
+        for (DWORD i = 0; i < cbHash; i++) {
+          str += hex[rgbHash[i] >> 4];
+          str += hex[rgbHash[i] & 0xF];
+        }
+        return str;
+      }
+    }
+    return "";
+  };
+
+  md5 = GetHashStr(hHashMd5);
+  sha1 = GetHashStr(hHashSha1);
+  sha256 = GetHashStr(hHashSha256);
+
+  success = (!md5.empty());
+
+  // Cleanup
+  if (hHashMd5)
+    CryptDestroyHash(hHashMd5);
+  if (hHashSha1)
+    CryptDestroyHash(hHashSha1);
+  if (hHashSha256)
+    CryptDestroyHash(hHashSha256);
+  CryptReleaseContext(hProv, 0);
+  CloseHandle(hFile);
+
+  // 5. Update Cache
+  if (success) {
+    std::lock_guard<std::mutex> lock(m_fileCacheMutex);
+    m_fileHashCache[path] = {md5, sha1, sha256, 0}; // TODO: Use real timestamp
+  }
+
+  return success;
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -144,6 +145,69 @@ func (s *PipeServer) handleConnection(f *os.File) {
 		if _, err := io.ReadFull(f, payload); err != nil {
 			log.Printf("Payload read error: %v", err)
 			return
+		}
+
+		// Parse and Convert Timestamps
+		var dataMap map[string]interface{}
+		// We try to unmarshal. If it fails (not JSON), we skip conversion.
+		if err := json.Unmarshal(payload, &dataMap); err == nil {
+			changed := false
+			for k, v := range dataMap {
+				// 1. Check if key contains "time" (case-insensitive)
+				if strings.Contains(strings.ToLower(k), "time") {
+					// 2. Check if valid epoch time integer
+					// JSON numbers decode to float64
+					if fVal, ok := v.(float64); ok {
+						// Check if it's effectively an integer
+						if fVal == float64(int64(fVal)) {
+							val := int64(fVal)
+							// heuristic: valid epoch?
+							// > 0 and < year 3000 (32503680000 approx)
+
+							// 1. Seconds
+							if val > 946684800 && val < 32503680000 {
+								t := time.Unix(val, 0)
+								dataMap[k] = t.Format("2006-01-02 15:04:05")
+								changed = true
+								log.Printf("Converted Seconds timestamp key %s: %d -> %s", k, val, dataMap[k])
+							} else if val > 946684800000 && val < 32503680000000 {
+								// 2. Milliseconds
+								t := time.Unix(0, val*1000000)
+								dataMap[k] = t.Format("2006-01-02 15:04:05")
+								changed = true
+								log.Printf("Converted Millis timestamp key %s: %d -> %s", k, val, dataMap[k])
+							} else if val > 110000000000000000 && val < 200000000000000000 {
+								// 3. FileTime (100ns chunks since Jan 1 1601)
+								// 1970 is 116444736000000000
+								// Approx now is 133...
+
+								// Unix Nano = (FileTime - 116444736000000000) * 100
+								unixt := (val - 116444736000000000) * 100
+								t := time.Unix(0, unixt)
+								dataMap[k] = t.Format("2006-01-02 15:04:05")
+								changed = true
+								log.Printf("Converted FileTime key %s: %d -> %s", k, val, dataMap[k])
+							} else {
+								// Log skipped potential timestamps for debugging
+								log.Printf("Skipped potential timestamp key %s: %d (out of range)", k, val)
+							}
+						}
+					} else {
+						// Log if we see "time" in key but value is not float64
+						log.Printf("Key %s has 'time' but value type is %T, skipping", k, v)
+					}
+				}
+			}
+			if changed {
+				if newPayload, err := json.Marshal(dataMap); err == nil {
+					payload = newPayload
+				} else {
+					log.Printf("Error marshalling updated payload: %v", err)
+				}
+			}
+		} else {
+			// Optional: log unmarshal error if you suspect bad JSON
+			// log.Printf("Failed to unmarshal payload for timestamp check: %v", err)
 		}
 
 		// Construct Event and Push to Storage
