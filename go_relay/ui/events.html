@@ -109,7 +109,7 @@
 
         .grid-header {
             display: grid;
-            grid-template-columns: 180px 220px 80px 100px 120px 120px 150px 1fr;
+            grid-template-columns: 180px 220px 80px 300px 1fr;
             gap: 15px;
             padding: 10px 15px;
             border-bottom: 1px solid var(--term-green);
@@ -131,7 +131,7 @@
 
         .log-row {
             display: grid;
-            grid-template-columns: 180px 220px 80px 100px 120px 120px 150px 1fr;
+            grid-template-columns: 180px 220px 80px 300px 1fr;
             gap: 15px;
             padding: 8px 15px;
             border-bottom: 1px solid var(--grid-line);
@@ -431,7 +431,6 @@
             <div class="col">TIMESTAMP</div>
             <div class="col">PROVIDER</div>
             <div class="col" style="text-align:right;">ID</div>
-            <div class="col">LEVEL</div>
             <div class="col">KEYWORD</div>
             <div class="col">PAYLOAD_SUMMARY</div>
         </div>
@@ -591,7 +590,6 @@
                     <div class="col col-time">${formatTime(evt.timestamp)}</div>
                     <div class="col col-prov">${provDisplay}</div>
                     <div class="col col-id">${evt.event_id}</div>
-                    <div class="col col-level ${lvlClass}">${level}</div>
                     <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.Keyword || '-'}</div>
                     <div class="col col-data">${summary}</div>
                 `;
