@@ -42,6 +42,7 @@ struct PacketHeader {
 struct EnrichedEventFrame {
   PacketHeader Header;
   nlohmann::json JsonBody;
+  uint32_t ProcessId;
 };
 
 // Files Hash Cache Entry

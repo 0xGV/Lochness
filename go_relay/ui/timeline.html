@@ -1628,6 +1628,10 @@
                     <span class="detail-value">${provider.name}</span>
                 </div>
                 <div class="detail-row">
+                    <span class="detail-label">PROCESS CONTEXT</span>
+                    <span class="detail-value">${(e.data && e.data["process name"]) ? e.data["process name"] : "N/A"}</span>
+                </div>
+                <div class="detail-row">
                     <span class="detail-label">EVENT IDENTIFIER</span>
                     <span class="detail-value">${e.event_id}</span>
                 </div>

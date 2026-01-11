@@ -13,7 +13,11 @@
 using json = nlohmann::json;
 
 #include <wincrypt.h>
+
 #pragma comment(lib, "crypt32.lib")
+
+#include <psapi.h>
+#pragma comment(lib, "psapi.lib")
 
 ETWWorker::ETWWorker()
     : m_sessionHandle(0), m_traceHandle(INVALID_PROCESSTRACE_HANDLE),
@@ -26,7 +30,6 @@ ETWWorker::~ETWWorker() {
   }
 }
 
-// Helper to convert Wide String to UTF-8 std::string for JSON
 std::string ToUtf8(const std::wstring &wstr) {
   if (wstr.empty())
     return "";
@@ -36,6 +39,45 @@ std::string ToUtf8(const std::wstring &wstr) {
   WideCharToMultiByte(CP_UTF8, 0, &wstr[0], (int)wstr.size(), &strTo[0],
                       size_needed, NULL, NULL);
   return strTo;
+}
+
+// Helper to get process name from PID
+std::string GetProcessName(uint32_t pid) {
+  if (pid == 0)
+    return "System Idle Process";
+  if (pid == 4)
+    return "System";
+
+  std::string processName = "Unknown";
+  HANDLE hProcess =
+      OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+  if (hProcess) {
+    HMODULE hMod;
+    DWORD cbNeeded;
+    if (EnumProcessModules(hProcess, &hMod, sizeof(hMod), &cbNeeded)) {
+      char szProcessName[MAX_PATH];
+      if (GetModuleBaseNameA(hProcess, hMod, szProcessName,
+                             sizeof(szProcessName) / sizeof(char))) {
+        processName = szProcessName;
+      }
+    }
+    // Fallback if EnumProcessModules fails (e.g. some system processes)
+    if (processName == "Unknown") {
+      char szProcessName[MAX_PATH];
+      DWORD length = MAX_PATH;
+      if (QueryFullProcessImageNameA(hProcess, 0, szProcessName, &length)) {
+        std::string fullPath = szProcessName;
+        size_t lastSlash = fullPath.find_last_of("\\/");
+        if (lastSlash != std::string::npos) {
+          processName = fullPath.substr(lastSlash + 1);
+        } else {
+          processName = fullPath;
+        }
+      }
+    }
+    CloseHandle(hProcess);
+  }
+  return processName;
 }
 
 // Helper to convert UTF-8 std::string to Wide String
@@ -760,12 +802,14 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   }
 
   // 4. Push to Async Queue instead of Immediate Send
+  // 4. Push to Async Queue instead of Immediate Send
   EnrichedEventFrame frame;
   frame.Header.Timestamp = pEvent->EventHeader.TimeStamp.QuadPart;
   frame.Header.ProviderId = pEvent->EventHeader.ProviderId;
   frame.Header.EventId = pEvent->EventHeader.EventDescriptor.Id;
   frame.Header.PayloadSize = 0;     // Calculated after enrichment/serialization
   frame.JsonBody = std::move(jObj); // Transfer JSON object
+  frame.ProcessId = pEvent->EventHeader.ProcessId;
 
   m_eventQueue.Push(frame);
 }
@@ -791,6 +835,33 @@ void ETWWorker::WorkerLoop() {
     // ----------------------------------------------------------------
     // Enrichment Phase
     // ----------------------------------------------------------------
+
+    // 1. Process Name Resolution
+    // Check if "Process Name" is already present, if not resolve it
+    if (!frame.JsonBody.contains("process name")) {
+      uint32_t targetPid = frame.ProcessId;
+
+      // Check for overrides in payload
+      if (frame.JsonBody.contains("PID")) {
+        try {
+          targetPid = frame.JsonBody["PID"].get<uint32_t>();
+        } catch (...) {
+        }
+      } else if (frame.JsonBody.contains("processid")) {
+        try {
+          targetPid = frame.JsonBody["processid"].get<uint32_t>();
+        } catch (...) {
+        }
+      } else if (frame.JsonBody.contains("ProcessId")) {
+        try {
+          targetPid = frame.JsonBody["ProcessId"].get<uint32_t>();
+        } catch (...) {
+        }
+      }
+
+      std::string procName = GetProcessName(targetPid);
+      frame.JsonBody["process name"] = procName;
+    }
 
     // Look for File Paths to Enrich
     // Common keys: "FileName", "ImageName", "Path", "ImagePath"

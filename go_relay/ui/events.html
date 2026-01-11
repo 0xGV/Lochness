@@ -109,7 +109,7 @@
 
         .grid-header {
             display: grid;
-            grid-template-columns: 180px 220px 80px 300px 1fr;
+            grid-template-columns: 180px 180px 60px 150px 280px 200px 1fr;
             gap: 15px;
             padding: 10px 15px;
             border-bottom: 1px solid var(--term-green);
@@ -131,7 +131,7 @@
 
         .log-row {
             display: grid;
-            grid-template-columns: 180px 220px 80px 300px 1fr;
+            grid-template-columns: 180px 180px 60px 150px 280px 200px 1fr;
             gap: 15px;
             padding: 8px 15px;
             border-bottom: 1px solid var(--grid-line);
@@ -167,6 +167,13 @@
         .col-prov {
             color: var(--accent-cyan);
             font-weight: bold;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .col-proc {
+            color: var(--term-green);
+            font-style: italic;
         }
 
         .col-id {
@@ -431,6 +438,8 @@
             <div class="col">TIMESTAMP</div>
             <div class="col">PROVIDER</div>
             <div class="col" style="text-align:right;">ID</div>
+            <div class="col">PROCESS</div>
+            <div class="col">TASK</div>
             <div class="col">KEYWORD</div>
             <div class="col">PAYLOAD_SUMMARY</div>
         </div>
@@ -578,7 +587,7 @@
                 }
 
                 let summary = "";
-                const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version"];
+                const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version", "process name", "PID", "ProcessId", "processid"];
                 if (typeof dataObj === 'object' && dataObj !== null) {
                     for (const [k, v] of Object.entries(dataObj)) {
                         if (!ignoreKeys.includes(k)) summary += `${k}=${v} `;
@@ -588,8 +597,10 @@
 
                 row.innerHTML = `
                     <div class="col col-time">${formatTime(evt.timestamp)}</div>
-                    <div class="col col-prov">${provDisplay}</div>
+                    <div class="col col-prov" title="${provDisplay}">${provDisplay}</div>
                     <div class="col col-id">${evt.event_id}</div>
+                    <div class="col col-proc" title="${dataObj['process name'] || ''}">${dataObj['process name'] || '-'}</div>
+                    <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.TaskStr || dataObj.Task || '-'}</div>
                     <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.Keyword || '-'}</div>
                     <div class="col col-data">${summary}</div>
                 `;
