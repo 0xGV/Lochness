@@ -196,6 +196,21 @@ private:
   std::unordered_map<EventKey, std::wstring, EventKeyHash>
       m_eventNameCache; // Optional: cache event names
 
+  // Module Info for Stack Walking
+  struct ModuleInfo {
+    uint64_t ImageBase;
+    uint64_t ImageSize;
+    std::wstring ImagePath;
+  };
+
+  // Process Module Cache (PID -> List of Modules)
+  std::unordered_map<uint32_t, std::vector<ModuleInfo>> m_processModules;
+  mutable std::mutex m_moduleMutex;
+
+  // Stack Trace Helpers
+  void HandleImageLoad(const nlohmann::json &evtBody, uint32_t pid);
+  nlohmann::json ResolveStack(uint32_t pid, const std::vector<uint64_t> &stack);
+
   // Cache Protection
   mutable std::mutex m_stateMutex;
 };

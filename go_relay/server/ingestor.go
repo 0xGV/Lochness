@@ -151,7 +151,13 @@ func (s *PipeServer) handleConnection(f *os.File) {
 		var dataMap map[string]interface{}
 		// We try to unmarshal. If it fails (not JSON), we skip conversion.
 		if err := json.Unmarshal(payload, &dataMap); err == nil {
+
+			// 0. Normalize Fields
 			changed := false
+			if NormalizePayload(dataMap) {
+				changed = true
+			}
+
 			for k, v := range dataMap {
 				// 1. Check if key contains "time" (case-insensitive)
 				if strings.Contains(strings.ToLower(k), "time") {

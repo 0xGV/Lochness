@@ -109,7 +109,7 @@
 
         .grid-header {
             display: grid;
-            grid-template-columns: 180px 180px 60px 150px 280px 200px 1fr;
+            grid-template-columns: 180px 180px 60px 150px 200px 280px 200px 1fr;
             gap: 15px;
             padding: 10px 15px;
             border-bottom: 1px solid var(--term-green);
@@ -131,7 +131,7 @@
 
         .log-row {
             display: grid;
-            grid-template-columns: 180px 180px 60px 150px 280px 200px 1fr;
+            grid-template-columns: 180px 180px 60px 150px 200px 280px 200px 1fr;
             gap: 15px;
             padding: 8px 15px;
             border-bottom: 1px solid var(--grid-line);
@@ -529,6 +529,7 @@
             <div class="col">PROVIDER</div>
             <div class="col" style="text-align:right;">ID</div>
             <div class="col">PROCESS</div>
+            <div class="col">USER</div>
             <div class="col">TASK</div>
             <div class="col">KEYWORD</div>
             <div class="col">PAYLOAD_SUMMARY</div>
@@ -699,7 +700,12 @@
                 }
 
                 let summary = "";
-                const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version", "process name", "PID", "ProcessId", "processid"];
+                // Use normalized keys in ignore list
+                const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version",
+                    "ImageName", "ProcessName", "ProcessId", "User", "ParentProcessId", "ParentImageName", "ParentProcessName",
+                    "PID", "processid", "process name", "parent pid" // Keep old ones just in case
+                ];
+
                 if (typeof dataObj === 'object' && dataObj !== null) {
                     for (const [k, v] of Object.entries(dataObj)) {
                         if (!ignoreKeys.includes(k)) summary += `${k}=${v} `;
@@ -707,11 +713,16 @@
                 }
                 if (!summary) summary = JSON.stringify(dataObj).slice(0, 100);
 
+                // Safe lookups for normalized fields
+                const procName = dataObj['ImageName'] || dataObj['ProcessName'] || dataObj['process name'] || '-';
+                const userName = dataObj['User'] || dataObj['user'] || '-';
+
                 row.innerHTML = `
                     <div class="col col-time">${formatTime(evt.timestamp)}</div>
                     <div class="col col-prov" title="${provDisplay}">${provDisplay}</div>
                     <div class="col col-id">${evt.event_id}</div>
-                    <div class="col col-proc" title="${dataObj['process name'] || ''}">${dataObj['process name'] || '-'}</div>
+                    <div class="col col-proc" title="${procName}">${procName}</div>
+                    <div class="col" style="color:#0ff; font-size:0.75rem;" title="${userName}">${userName}</div>
                     <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.TaskStr || dataObj.Task || '-'}</div>
                     <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.Keyword || '-'}</div>
                     <div class="col col-data">${summary}</div>
@@ -845,6 +856,22 @@
                 <div class="ins-value context-target" data-key="ID" data-val="${evt.event_id}" onclick="handleContextMenu(event, 'ID', '${evt.event_id}')">${evt.event_id}</div>
             </div>
             <div class="ins-section">
+                <div class="ins-label">PROCESS CONTEXT</div>
+                <div class="ins-value">
+                    <div style="margin-bottom:8px;"><span style="color:var(--term-dim);">Process:</span> ${data['ImageName'] || data['process name'] || 'Unknown'}</div>
+                    <div style="margin-bottom:8px;"><span style="color:var(--term-dim);">User:</span> ${data.User || data.user || 'Unknown'}</div>
+                    <div style="margin-bottom:8px;"><span style="color:var(--term-dim);">Parent PID:</span> ${data['ParentProcessId'] || data['parent pid'] || 'N/A'}</div>
+                    <div><span style="color:var(--term-dim);">Parent Process:</span> ${data['ParentImageName'] || data['ParentProcessName'] || data['parent process name'] || 'N/A'}</div>
+                </div>
+            </div>
+            ${(data.Frames && Array.isArray(data.Frames) && data.Frames.length > 0) ? `
+            <div class="ins-section">
+                <div class="ins-label">CALL STACK</div>
+                <div class="ins-value" style="max-height: 200px; overflow-y: auto; font-family:var(--font-mono); font-size:0.75rem;">
+                    ${data.Frames.map((f, i) => `<div style="padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--term-dim); margin-right:8px;">${i.toString().padStart(2, '0')}</span> ${f}</div>`).join('')}
+                </div>
+            </div>` : ''}
+            <div class="ins-section">
                 <div class="ins-label">STRUCTURED DATA</div>
                 <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.05);">${formattedData}</div>
             </div>
@@ -899,7 +926,7 @@
         });
 
         function addFilter(text) {
-            let field = "Data"; // Default to generic payload search
+            let field = "*"; // Default to naive search
             let value = text;
             let operator = "=";
 
@@ -959,7 +986,9 @@
                     chip.style.borderColor = 'var(--accent-magenta)';
                     chip.style.color = 'var(--accent-magenta)';
                 }
-                chip.innerHTML = `<span>${f.field}${f.operator}</span> ${f.value} <div class="close" onclick="removeFilter(${idx})">×</div>`;
+                // For naive search (*), display only the value
+                const displayText = f.field === '*' ? f.value : `<span>${f.field}${f.operator}</span> ${f.value}`;
+                chip.innerHTML = `${displayText} <div class="close" onclick="removeFilter(${idx})">×</div>`;
                 container.appendChild(chip);
             });
         }

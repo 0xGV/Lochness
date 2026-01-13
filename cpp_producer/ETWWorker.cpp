@@ -19,6 +19,8 @@ using json = nlohmann::json;
 #include <psapi.h>
 #pragma comment(lib, "psapi.lib")
 
+#include <tlhelp32.h>
+
 ETWWorker::ETWWorker()
     : m_sessionHandle(0), m_traceHandle(INVALID_PROCESSTRACE_HANDLE),
       m_running(false), m_hPipe(INVALID_HANDLE_VALUE), m_droppedEvents(0) {}
@@ -80,6 +82,74 @@ std::string GetProcessName(uint32_t pid) {
   return processName;
 }
 
+// Helper to get parent PID from PID
+uint32_t GetParentPid(uint32_t pid) {
+  if (pid == 0 || pid == 4)
+    return 0;
+
+  uint32_t parentPid = 0;
+  HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+  if (hSnapshot == INVALID_HANDLE_VALUE)
+    return 0;
+
+  PROCESSENTRY32W pe32;
+  pe32.dwSize = sizeof(PROCESSENTRY32W);
+
+  if (Process32FirstW(hSnapshot, &pe32)) {
+    do {
+      if (pe32.th32ProcessID == pid) {
+        parentPid = pe32.th32ParentProcessID;
+        break;
+      }
+    } while (Process32NextW(hSnapshot, &pe32));
+  }
+
+  CloseHandle(hSnapshot);
+  return parentPid;
+}
+
+// Helper to get process owner (Domain\User)
+std::string GetProcessOwner(uint32_t pid) {
+  if (pid == 0)
+    return "System Idle Process";
+  if (pid == 4)
+    return "NT AUTHORITY\\SYSTEM";
+
+  std::string owner = "Unknown";
+  HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, pid);
+  if (!hProcess)
+    return owner;
+
+  HANDLE hToken = NULL;
+  if (OpenProcessToken(hProcess, TOKEN_QUERY, &hToken)) {
+    DWORD dwSize = 0;
+    GetTokenInformation(hToken, TokenUser, NULL, 0, &dwSize);
+
+    if (dwSize > 0) {
+      std::vector<BYTE> buffer(dwSize);
+      PTOKEN_USER pTokenUser = (PTOKEN_USER)buffer.data();
+
+      if (GetTokenInformation(hToken, TokenUser, pTokenUser, dwSize, &dwSize)) {
+        WCHAR szName[256] = {0};
+        WCHAR szDomain[256] = {0};
+        DWORD dwNameSize = 256;
+        DWORD dwDomainSize = 256;
+        SID_NAME_USE sidType;
+
+        if (LookupAccountSidW(NULL, pTokenUser->User.Sid, szName, &dwNameSize,
+                              szDomain, &dwDomainSize, &sidType)) {
+          std::wstring wOwner =
+              std::wstring(szDomain) + L"\\" + std::wstring(szName);
+          owner = ToUtf8(wOwner);
+        }
+      }
+    }
+    CloseHandle(hToken);
+  }
+  CloseHandle(hProcess);
+  return owner;
+}
+
 // Helper to convert UTF-8 std::string to Wide String
 std::wstring ToWide(const std::string &str) {
   if (str.empty())
@@ -108,6 +178,11 @@ void ETWWorker::Start(const std::wstring &sessionName) {
   std::wcout << L"Starting ETWWorker for session: " << sessionName << std::endl;
   m_sessionName = sessionName;
   m_running = true;
+
+  // Enable Kernel Process Provider for Image Load
+  EnableProvider(L"{22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}");
+  // StackWalk provider not available in standard user session, disabling for
+  // now. EnableProvider(L"{DEF2FE46-7BD6-4B80-BD94-F57FE20D0CE3}");
 
   // Start Background Workers (4 threads)
   for (int i = 0; i < 4; i++) {
@@ -836,6 +911,22 @@ void ETWWorker::WorkerLoop() {
     // Enrichment Phase
     // ----------------------------------------------------------------
 
+    // 0. Stack Trace Support
+    HandleImageLoad(frame.JsonBody, frame.ProcessId);
+
+    // StackWalk Event (Id 32)
+    if (frame.Header.EventId == 32) {
+      if (frame.JsonBody.contains("Stack") &&
+          frame.JsonBody["Stack"].is_array()) {
+        std::vector<uint64_t> stack;
+        for (auto &val : frame.JsonBody["Stack"]) {
+          if (val.is_number())
+            stack.push_back(val.get<uint64_t>());
+        }
+        frame.JsonBody["Frames"] = ResolveStack(frame.ProcessId, stack);
+      }
+    }
+
     // 1. Process Name Resolution
     // Check if "Process Name" is already present, if not resolve it
     if (!frame.JsonBody.contains("process name")) {
@@ -861,6 +952,20 @@ void ETWWorker::WorkerLoop() {
 
       std::string procName = GetProcessName(targetPid);
       frame.JsonBody["process name"] = procName;
+
+      // 2. Parent PID Resolution
+      uint32_t parentPid = GetParentPid(targetPid);
+      frame.JsonBody["parent pid"] = parentPid;
+
+      // 3. Parent Process Name Resolution
+      if (parentPid > 0) {
+        std::string parentProcName = GetProcessName(parentPid);
+        frame.JsonBody["parent process name"] = parentProcName;
+      }
+
+      // 4. User/Owner Resolution
+      std::string owner = GetProcessOwner(targetPid);
+      frame.JsonBody["user"] = owner;
     }
 
     // Look for File Paths to Enrich
@@ -1048,4 +1153,82 @@ bool ETWWorker::ComputeFileHashes(const std::wstring &path, std::string &md5,
   }
 
   return success;
+}
+
+// Helper to handle Image Load events for stack walking
+void ETWWorker::HandleImageLoad(const json &evtBody, uint32_t pid) {
+  try {
+    uint64_t base = 0;
+    uint64_t size = 0;
+    std::string pathUtf8 = "";
+
+    auto getVal = [&](const char *key, uint64_t &out) {
+      if (evtBody.contains(key)) {
+        if (evtBody[key].is_number())
+          out = evtBody[key].get<uint64_t>();
+        else if (evtBody[key].is_string()) {
+          std::string s = evtBody[key].get<std::string>();
+          if (s.find("0x") == 0)
+            out = std::stoull(s, nullptr, 16);
+          else
+            out = std::stoull(s);
+        }
+      }
+    };
+
+    getVal("ImageBase", base);
+    getVal("ImageSize", size);
+
+    if (base == 0)
+      getVal("BaseAddress", base);
+    if (size == 0)
+      getVal("ModuleSize", size);
+
+    if (evtBody.contains("FileName"))
+      pathUtf8 = evtBody["FileName"].get<std::string>();
+    else if (evtBody.contains("ImageName"))
+      pathUtf8 = evtBody["ImageName"].get<std::string>();
+
+    if (base != 0 && !pathUtf8.empty()) {
+      std::lock_guard<std::mutex> lock(m_moduleMutex);
+      m_processModules[pid].push_back({base, size, ToWide(pathUtf8)});
+    }
+  } catch (...) {
+  }
+}
+
+// Helper to resolve stack addresses to Module + Offset
+json ETWWorker::ResolveStack(uint32_t pid, const std::vector<uint64_t> &stack) {
+  std::lock_guard<std::mutex> lock(m_moduleMutex);
+  json frames = json::array();
+
+  bool hasModules = (m_processModules.count(pid) > 0);
+  const auto &modules = m_processModules[pid];
+
+  for (uint64_t addr : stack) {
+    std::string symbol = "";
+    if (hasModules) {
+      for (const auto &mod : modules) {
+        if (addr >= mod.ImageBase && addr < mod.ImageBase + mod.ImageSize) {
+          uint64_t offset = addr - mod.ImageBase;
+          std::string modName = ToUtf8(mod.ImagePath);
+          size_t lastSlash = modName.find_last_of("\\/");
+          if (lastSlash != std::string::npos)
+            modName = modName.substr(lastSlash + 1);
+
+          char buf[64];
+          sprintf_s(buf, " + 0x%llX", offset);
+          symbol = modName + buf;
+          break;
+        }
+      }
+    }
+    if (symbol.empty()) {
+      char buf[32];
+      sprintf_s(buf, "0x%llX", addr);
+      symbol = buf;
+    }
+    frames.push_back(symbol);
+  }
+  return frames;
 }

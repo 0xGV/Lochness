@@ -249,7 +249,24 @@ func (s *Storage) Search(query string, filters []Filter, since uint64, page int,
 			for _, f := range filters {
 				isExclusion := f.Operator == "!="
 
-				if f.Field == "ID" {
+				if f.Field == "*" {
+					// Naive search: check provider, event ID, and data
+					naiveMatch := containsIgnoreCase(evt.ProviderName, f.Value) ||
+						fmt.Sprintf("%d", evt.EventId) == f.Value ||
+						containsIgnoreCase(string(evt.Data), f.Value)
+
+					if isExclusion {
+						if naiveMatch {
+							match = false
+							break
+						}
+					} else {
+						if !naiveMatch {
+							match = false
+							break
+						}
+					}
+				} else if f.Field == "ID" {
 					isMatch := fmt.Sprintf("%d", evt.EventId) == f.Value
 					if isExclusion {
 						if isMatch {
