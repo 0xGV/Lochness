@@ -5,9 +5,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
+
+type Filter struct {
+	Field    string `json:"field"`
+	Value    string `json:"value"`
+	Operator string `json:"operator"` // "=" or "!="
+}
 
 type Event struct {
 	Timestamp    uint64          `json:"timestamp,string"`
@@ -35,6 +42,9 @@ type Storage struct {
 	// Since we need to keep 30m of data, a simple slice with `copy` on prune is easier than a fixed circular buffer
 	// because complexity of variable sized payloads.
 	// We will use a slice and compact it occasionally.
+
+	schemaMu    sync.RWMutex
+	schemaCache map[string][]string // Key: "ProviderId:EventId" -> List of keys in Data
 }
 
 func NewStorage(config StorageConfig) *Storage {
@@ -42,8 +52,9 @@ func NewStorage(config StorageConfig) *Storage {
 		os.MkdirAll(config.CacheDir, 0755)
 	}
 	return &Storage{
-		ramBuffer: make([]Event, 0, 10000),
-		config:    config,
+		ramBuffer:   make([]Event, 0, 10000),
+		config:      config,
+		schemaCache: make(map[string][]string),
 	}
 }
 
@@ -66,6 +77,32 @@ func (s *Storage) Add(evt Event) {
 
 	s.ramBuffer = append(s.ramBuffer, evt)
 	s.ramUsage += evtSize
+
+	// Update Schema Cache
+	// We use a composite key of ProviderID and EventID
+	schemaKey := fmt.Sprintf("%x:%d", evt.ProviderId, evt.EventId)
+
+	// Double-checked locking for performance
+	s.schemaMu.RLock()
+	_, exists := s.schemaCache[schemaKey]
+	s.schemaMu.RUnlock()
+
+	if !exists {
+		// Parse JSON to get keys
+		var dataMap map[string]interface{}
+		if err := json.Unmarshal(evt.Data, &dataMap); err == nil {
+			keys := make([]string, 0, len(dataMap))
+			for k := range dataMap {
+				keys = append(keys, k)
+			}
+			s.schemaMu.Lock()
+			// Check again
+			if _, ok := s.schemaCache[schemaKey]; !ok {
+				s.schemaCache[schemaKey] = keys
+			}
+			s.schemaMu.Unlock()
+		}
+	}
 }
 
 func (s *Storage) flushToDisk() {
@@ -164,6 +201,11 @@ func (s *Storage) Flush() {
 	s.ramBuffer = make([]Event, 0, 10000)
 	s.ramUsage = 0
 
+	// Clear Schema Cache
+	s.schemaMu.Lock()
+	s.schemaCache = make(map[string][]string)
+	s.schemaMu.Unlock()
+
 	// 2. Clear Disk
 	files, err := os.ReadDir(s.config.CacheDir)
 	if err == nil {
@@ -173,7 +215,7 @@ func (s *Storage) Flush() {
 	}
 }
 
-func (s *Storage) Search(query string, since uint64, page int, pageSize int) ([]Event, int) {
+func (s *Storage) Search(query string, filters []Filter, since uint64, page int, pageSize int) ([]Event, int) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -191,15 +233,93 @@ func (s *Storage) Search(query string, since uint64, page int, pageSize int) ([]
 			continue
 		}
 
-		match := false
-		if query == "" {
-			match = true
-		} else {
-			// Check Provider, ID, Data
-			if containsIgnoreCase(evt.ProviderName, query) ||
-				fmt.Sprintf("%d", evt.EventId) == query ||
-				containsIgnoreCase(string(evt.Data), query) {
-				match = true
+		match := true
+
+		// 1. Text Query (if present)
+		if query != "" {
+			if !containsIgnoreCase(evt.ProviderName, query) &&
+				fmt.Sprintf("%d", evt.EventId) != query &&
+				!containsIgnoreCase(string(evt.Data), query) {
+				match = false
+			}
+		}
+
+		// 2. Structured Filters (AND logic)
+		if match && len(filters) > 0 {
+			for _, f := range filters {
+				isExclusion := f.Operator == "!="
+
+				if f.Field == "ID" {
+					isMatch := fmt.Sprintf("%d", evt.EventId) == f.Value
+					if isExclusion {
+						if isMatch {
+							match = false
+							break
+						}
+					} else {
+						if !isMatch {
+							match = false
+							break
+						}
+					}
+				} else if f.Field == "Provider" || f.Field == "Prov" {
+					isMatch := containsIgnoreCase(evt.ProviderName, f.Value)
+					if isExclusion {
+						if isMatch {
+							match = false
+							break
+						}
+					} else {
+						if !isMatch {
+							match = false
+							break
+						}
+					}
+				} else {
+					// Payload Field Filter with Schema Optimization
+					schemaKey := fmt.Sprintf("%x:%d", evt.ProviderId, evt.EventId)
+
+					s.schemaMu.RLock()
+					schema, hasSchema := s.schemaCache[schemaKey]
+					s.schemaMu.RUnlock()
+
+					if hasSchema {
+						// Check if key exists in schema
+						keyExists := false
+						for _, k := range schema {
+							if strings.EqualFold(k, f.Field) {
+								keyExists = true
+								break
+							}
+						}
+
+						if !keyExists {
+							if !isExclusion {
+								// Must have key to match inclusion
+								match = false
+								break
+							} else {
+								// Exclusion logic: Key missing means "value != X" is true.
+								continue
+							}
+						}
+					}
+
+					// Value Check
+					valueInPayload := containsIgnoreCase(string(evt.Data), f.Value)
+
+					if isExclusion {
+						if valueInPayload {
+							match = false
+							break
+						}
+					} else {
+						if !valueInPayload {
+							match = false
+							break
+						}
+					}
+				}
 			}
 		}
 

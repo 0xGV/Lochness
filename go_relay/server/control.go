@@ -120,6 +120,7 @@ func (cs *ControlServer) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	sinceStr := r.URL.Query().Get("since")
 	pageStr := r.URL.Query().Get("page")
 	sizeStr := r.URL.Query().Get("size")
+	filtersStr := r.URL.Query().Get("filters")
 
 	var since uint64
 	if sinceStr != "" {
@@ -136,7 +137,12 @@ func (cs *ControlServer) HandleSearch(w http.ResponseWriter, r *http.Request) {
 		fmt.Sscanf(sizeStr, "%d", &size)
 	}
 
-	events, total := cs.Storage.Search(query, since, page, size)
+	var filters []Filter
+	if filtersStr != "" {
+		json.Unmarshal([]byte(filtersStr), &filters)
+	}
+
+	events, total := cs.Storage.Search(query, filters, since, page, size)
 
 	resp := SearchResponse{
 		Events: events,

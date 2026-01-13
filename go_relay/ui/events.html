@@ -418,6 +418,93 @@
             border-left: 1px solid var(--term-dim);
             padding-left: 10px;
         }
+
+        .filter-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+            min-height: 25px;
+            /* prevent jumps */
+        }
+
+        .filter-chip {
+            background: rgba(0, 255, 65, 0.15);
+            border: 1px solid var(--term-green);
+            color: var(--term-green);
+            padding: 4px 10px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .filter-chip span {
+            font-weight: bold;
+            color: var(--term-amber);
+            margin-right: 4px;
+        }
+
+        .filter-chip .close {
+            cursor: pointer;
+            color: var(--term-green);
+            font-weight: bold;
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        .filter-chip .close:hover {
+            color: #fff;
+            text-shadow: 0 0 5px #fff;
+        }
+
+        /* Context Menu */
+        #contextMenu {
+            display: none;
+            position: fixed;
+            z-index: 3000;
+            background: rgba(5, 5, 5, 0.95);
+            border: 1px solid var(--term-green);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.8);
+            padding: 5px 0;
+            min-width: 150px;
+        }
+
+        .ctx-item {
+            padding: 8px 15px;
+            color: var(--term-green);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ctx-item:hover {
+            background: rgba(0, 255, 65, 0.15);
+        }
+
+        .ctx-item.exclude {
+            color: var(--accent-magenta);
+        }
+
+        .ctx-item.exclude:hover {
+            background: rgba(255, 0, 255, 0.15);
+        }
+
+        .context-target {
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .context-target:hover {
+            background: rgba(0, 255, 65, 0.1);
+            box-shadow: 0 0 5px rgba(0, 255, 65, 0.2);
+        }
     </style>
 </head>
 
@@ -430,9 +517,12 @@
 
         <div class="search-area">
             <span class="cmd-prompt">></span>
-            <input type="text" id="searchInput" class="search-input" placeholder="SEARCH_BY_ID_OR_PAYLOAD..."
-                autocomplete="off">
+            <input type="text" id="searchInput" class="search-input"
+                placeholder="SEARCH: TYPE FILTER (e.g. ID=123) AND PRESS ENTER..." autocomplete="off">
         </div>
+
+        <!-- Filter Chips Container -->
+        <div id="filterContainer" class="filter-area"></div>
 
         <div class="grid-header">
             <div class="col">TIMESTAMP</div>
@@ -471,6 +561,12 @@
         </div>
     </div>
 
+    <!-- Context Menu -->
+    <div id="contextMenu">
+        <div class="ctx-item" onclick="applyContextFilter(false)"><span>+</span> FILTER_INCLUDE</div>
+        <div class="ctx-item exclude" onclick="applyContextFilter(true)"><span>-</span> FILTER_EXCLUDE</div>
+    </div>
+
     <!-- Mode Capsule -->
     <div id="mode-capsule">
         <button class="mode-btn" onclick="window.location.href='/ui/timeline.html'">Timeline</button>
@@ -483,6 +579,7 @@
         const gridBody = document.getElementById('gridBody');
         const inspector = document.getElementById('inspector');
         const liveIndicator = document.getElementById('live-indicator');
+        const contextMenu = document.getElementById('contextMenu');
 
         let activeEvent = null;
         let latestTimestamp = "0";
@@ -495,9 +592,16 @@
         const pageSize = 500;
         let totalEvents = 0;
 
-        // BUFFERING: Disabled/Removed in favor of explicit Paging.
-        // let pendingEvents = [];
-        // let nextFlushTime = ...;
+        // Context Menu State
+        let ctxTargetKey = null;
+        let ctxTargetValue = null;
+
+        // Global Click to hide Context Menu
+        window.addEventListener('click', (e) => {
+            if (!contextMenu.contains(e.target)) {
+                contextMenu.style.display = 'none';
+            }
+        });
 
         // Event Delegation
         gridBody.addEventListener('click', (e) => {
@@ -520,15 +624,23 @@
         }
 
         async function fetchEvents(isNewSearch = false) {
-            const query = searchInput.value;
-            if (isNewSearch || query !== currentQuery) {
-                currentQuery = query;
+            const query = "";
+
+            if (isNewSearch) {
                 latestTimestamp = "0";
                 gridBody.innerHTML = '';
             }
 
             try {
-                const res = await fetch(`/events/search?query=${encodeURIComponent(query)}&page=${currentPage}&size=${pageSize}`);
+                // Serialize filters
+                const backendFilters = activeFilters.map(f => ({
+                    Field: f.field,
+                    Value: f.value,
+                    Operator: f.operator || "="
+                }));
+                const filtersJson = encodeURIComponent(JSON.stringify(backendFilters));
+
+                const res = await fetch(`/events/search?query=&filters=${filtersJson}&page=${currentPage}&size=${pageSize}`);
                 if (!res.ok) return;
 
                 let respData = await res.json();
@@ -682,7 +794,12 @@
                             valStr = '[Complex Object]';
                         }
                     }
-                    html += `<tr><td class="kv-key">${k}</td><td class="kv-val">${valStr}</td></tr>`;
+                    // Escape value for attribute
+                    const safeVal = String(valStr).replace(/"/g, '&quot;');
+                    html += `<tr>
+                        <td class="kv-key">${k}</td>
+                        <td class="kv-val context-target" data-key="${k}" data-val="${safeVal}" onclick="handleContextMenu(event, '${k}', this.getAttribute('data-val'))">${valStr}</td>
+                    </tr>`;
                 }
                 html += '</table>';
                 return html;
@@ -694,6 +811,9 @@
             activeEvent = wrap.evt;
             const data = wrap.data;
             const evt = wrap.evt;
+
+            // Hide context menu if open
+            contextMenu.style.display = 'none';
 
             inspector.classList.add('open');
             document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
@@ -718,11 +838,11 @@
             </div>
             <div class="ins-section">
                 <div class="ins-label">ORIGIN PROVIDER</div>
-                <div class="ins-value">${providerName}</div>
+                <div class="ins-value context-target" data-key="Provider" data-val="${providerName}" onclick="handleContextMenu(event, 'Provider', '${providerName}')">${providerName}</div>
             </div>
             <div class="ins-section">
                 <div class="ins-label">EVENT IDENTIFIER</div>
-                <div class="ins-value">${evt.event_id}</div>
+                <div class="ins-value context-target" data-key="ID" data-val="${evt.event_id}" onclick="handleContextMenu(event, 'ID', '${evt.event_id}')">${evt.event_id}</div>
             </div>
             <div class="ins-section">
                 <div class="ins-label">STRUCTURED DATA</div>
@@ -733,19 +853,116 @@
             document.querySelector('.ins-content').innerHTML = contentHtml;
         }
 
+        function handleContextMenu(e, key, value) {
+            e.stopPropagation(); // Prevent bubbling causing immediate close
+            ctxTargetKey = key;
+            ctxTargetValue = value;
+
+            // Position menu
+            const x = e.clientX;
+            const y = e.clientY;
+
+            // Boundary checks (basic)
+            contextMenu.style.left = `${x}px`;
+            contextMenu.style.top = `${y}px`;
+            contextMenu.style.display = 'block';
+        }
+
+        function applyContextFilter(exclude) {
+            if (!ctxTargetKey || ctxTargetValue === null) return;
+
+            const operator = exclude ? '!=' : '=';
+            const filterStr = `${ctxTargetKey}${operator}${ctxTargetValue}`;
+
+            addFilter(filterStr);
+            contextMenu.style.display = 'none';
+        }
+
         function closeInspector() {
             inspector.classList.remove('open');
             activeEvent = null;
+            contextMenu.style.display = 'none';
             document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
         }
 
-        let timeout = null;
-        searchInput.addEventListener('input', () => {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => fetchEvents(true), 300);
+        // Filter Logic
+        let activeFilters = []; // { field: "ID", value: "123" }
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const val = searchInput.value.trim();
+                if (val) {
+                    addFilter(val);
+                    searchInput.value = '';
+                }
+            }
         });
 
+        function addFilter(text) {
+            let field = "Data"; // Default to generic payload search
+            let value = text;
+            let operator = "=";
 
+            // Check for Key!=Value or Key=Value
+            // Check != first as it is more specific
+            if (text.includes('!=')) {
+                operator = "!=";
+                const parts = text.split('!=');
+                const key = parts[0].trim().toLowerCase();
+                field = resolveFieldKey(key, parts[0].trim());
+                value = parts.slice(1).join('!=').trim();
+            } else if (text.includes('=')) {
+                operator = "=";
+                const parts = text.split('=');
+                const key = parts[0].trim().toLowerCase();
+                field = resolveFieldKey(key, parts[0].trim());
+                value = parts.slice(1).join('=').trim();
+            }
+
+            // Check for duplicates
+            const exists = activeFilters.some(f =>
+                f.field === field &&
+                f.value === value &&
+                f.operator === operator
+            );
+            if (exists) return;
+
+            activeFilters.push({ field: field, value: value, operator: operator, raw: text });
+            renderFilters();
+            currentPage = 1;
+            fetchEvents(true);
+        }
+
+        function resolveFieldKey(lowerKey, originalKey) {
+            if (['id', 'eventid'].includes(lowerKey)) return "ID";
+            if (['provider', 'prov'].includes(lowerKey)) return "Provider";
+            if (['task', 'process', 'pid', 'level', 'keyword'].includes(lowerKey)) return originalKey;
+            return originalKey;
+        }
+
+        function removeFilter(index) {
+            activeFilters.splice(index, 1);
+            renderFilters();
+            currentPage = 1;
+            fetchEvents(true);
+        }
+
+        function renderFilters() {
+            const container = document.getElementById('filterContainer');
+            container.innerHTML = '';
+            activeFilters.forEach((f, idx) => {
+                const chip = document.createElement('div');
+                chip.className = 'filter-chip';
+                // Distinct color for exclusion?
+                const isExclusion = f.operator === '!=';
+                if (isExclusion) {
+                    chip.style.borderColor = 'var(--accent-magenta)';
+                    chip.style.color = 'var(--accent-magenta)';
+                }
+                chip.innerHTML = `<span>${f.field}${f.operator}</span> ${f.value} <div class="close" onclick="removeFilter(${idx})">×</div>`;
+                container.appendChild(chip);
+            });
+        }
 
         // Initial load
         fetchEvents(true);
