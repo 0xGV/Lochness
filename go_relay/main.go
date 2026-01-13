@@ -35,7 +35,7 @@ func main() {
 	// 3. Initialize Control Server
 	// This talks to C++ Control Listener
 	controlPipePath := `\\.\pipe\etw_control`
-	control := server.NewControlServer(store, resolver, controlPipePath)
+	control := server.NewControlServer(store, resolver, controlPipePath, "groups.json")
 
 	// Start metadata hydration in background
 	// Give C++ agent a moment to connect if we just started
@@ -48,6 +48,8 @@ func main() {
 	http.HandleFunc("/events/search", control.HandleSearch)
 	http.HandleFunc("/config/providers", control.HandleConfig)
 	http.HandleFunc("/api/providers", control.HandleListProviders)
+	http.HandleFunc("/api/groups", control.HandleGroups)
+	http.HandleFunc("/api/groups/toggle", control.HandleGroupToggle)
 
 	// Dynamic Handler for /api/providers/{guid}/...
 	http.HandleFunc("/api/providers/", func(w http.ResponseWriter, r *http.Request) {

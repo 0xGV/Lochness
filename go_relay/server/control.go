@@ -13,20 +13,26 @@ import (
 )
 
 type ControlServer struct {
-	Storage  *Storage
-	Resolver *ProviderResolver
-	PipePath string
-	mu       sync.Mutex
-	Enabled  map[string]bool
+	Storage         *Storage
+	Resolver        *ProviderResolver
+	PipePath        string
+	Groups          map[string][]string
+	GroupConfigPath string
+	mu              sync.Mutex
+	Enabled         map[string]bool
 }
 
-func NewControlServer(storage *Storage, resolver *ProviderResolver, pipePath string) *ControlServer {
-	return &ControlServer{
-		Storage:  storage,
-		Resolver: resolver,
-		PipePath: pipePath,
-		Enabled:  make(map[string]bool),
+func NewControlServer(storage *Storage, resolver *ProviderResolver, pipePath string, groupConfigPath string) *ControlServer {
+	cs := &ControlServer{
+		Storage:         storage,
+		Resolver:        resolver,
+		PipePath:        pipePath,
+		Enabled:         make(map[string]bool),
+		Groups:          make(map[string][]string),
+		GroupConfigPath: groupConfigPath,
 	}
+	cs.LoadGroups()
+	return cs
 }
 
 type ProviderConfig struct {
@@ -244,6 +250,148 @@ func (cs *ControlServer) HandleSetFilters(w http.ResponseWriter, r *http.Request
 
 	w.WriteHeader(200)
 	w.Write(resp)
+}
+
+func (cs *ControlServer) LoadGroups() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	data, err := os.ReadFile(cs.GroupConfigPath)
+	if err != nil {
+		return // Ignore error, file might not exist
+	}
+	json.Unmarshal(data, &cs.Groups)
+}
+
+func (cs *ControlServer) SaveGroups() {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	data, err := json.MarshalIndent(cs.Groups, "", "  ")
+	if err == nil {
+		os.WriteFile(cs.GroupConfigPath, data, 0644)
+	}
+}
+
+func (cs *ControlServer) HandleGroups(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		cs.mu.Lock()
+		defer cs.mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(cs.Groups)
+		return
+	}
+
+	if r.Method == "POST" {
+		var req struct {
+			Name  string   `json:"name"`
+			Guids []string `json:"guids"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Bad Request", 400)
+			return
+		}
+		if req.Name == "" {
+			http.Error(w, "Name required", 400)
+			return
+		}
+
+		cs.mu.Lock()
+		cs.Groups[req.Name] = req.Guids
+		cs.mu.Unlock() // Unlock save uses lock
+		cs.SaveGroups()
+
+		w.WriteHeader(200)
+		return
+	}
+
+	if r.Method == "DELETE" {
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			http.Error(w, "Name required", 400)
+			return
+		}
+		cs.mu.Lock()
+		delete(cs.Groups, name)
+		cs.mu.Unlock()
+		cs.SaveGroups()
+		w.WriteHeader(200)
+		return
+	}
+
+	http.Error(w, "Method not allowed", 405)
+}
+
+func (cs *ControlServer) HandleGroupToggle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	var req struct {
+		Name   string `json:"name"`
+		Enable bool   `json:"enable"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad Request", 400)
+		return
+	}
+
+	cs.mu.Lock()
+	guids, ok := cs.Groups[req.Name]
+	cs.mu.Unlock()
+
+	if !ok {
+		http.Error(w, "Group not found", 404)
+		return
+	}
+
+	action := "Disable"
+	if req.Enable {
+		action = "Enable"
+	}
+
+	for _, guid := range guids {
+		cleanGuid := strings.ToUpper(strings.Trim(guid, "{}"))
+		// Ensure braces for provider logic if needed, but resolved usually expects braces?
+		// My sendCommand usually takes just GUID string.
+		// Existing toggle logic in index.html sends Clean GUID (no braces).
+		// Existing HandleConfig takes Provider string.
+		// However, C++ side might expect braces.
+		// Let's look at `LoadProviders`. They are stored with braces in `ProviderInfo` but clean in map.
+		// `HandleConfig` receives whatever.
+		// `NewProviderResolver` stores clean GUIDs.
+		// I will ensure braces are STRIPPED for consistency if backend expects clean, OR ADDED if C++ expects them.
+		// `HandleConfig` calls `sendCommand`.
+		// `sendCommand` sends JSON.
+		// The C++ agent parses GUID.
+		// Usually Windows GUID parsing handles braces or not.
+		// I'll stick to what `toggleProv` did in JS: `cleanGuid`.
+
+		if !strings.HasPrefix(cleanGuid, "{") {
+			// actually `toggleProv` sends CLEAN guid.
+			// so I will send clean guid.
+		}
+
+		cmd := map[string]interface{}{
+			"Action":   action,
+			"Provider": cleanGuid,
+		}
+
+		if _, err := cs.sendCommand(cmd); err == nil {
+			cs.mu.Lock()
+			if req.Enable {
+				cs.Enabled[cleanGuid] = true
+			} else {
+				delete(cs.Enabled, cleanGuid)
+			}
+			cs.mu.Unlock()
+		} else {
+			log.Printf("Failed to %s provider %s: %v", action, guid, err)
+		}
+	}
+
+	w.WriteHeader(200)
 }
 
 // HydrateAllMetadata fetches metadata for all known providers from the C++ agent.
