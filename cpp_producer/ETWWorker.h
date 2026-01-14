@@ -155,6 +155,16 @@ public:
   void SetProviderFilter(const std::wstring &providerGuid,
                          const std::vector<unsigned short> &eventIds);
 
+  // Deep Process Inspection Methods
+  std::wstring GetProcessAncestry(uint32_t pid);
+  std::wstring GetProcessResources(uint32_t pid);
+  std::wstring GetNetworkConnections(uint32_t pid);
+  std::wstring ScanProcessMemory(uint32_t pid);
+  std::wstring GetProcessThreads(uint32_t pid);
+  std::wstring GetProcessDetails(uint32_t pid);
+  std::wstring GetProcessStrings(uint32_t pid);
+  std::wstring ListProcesses();
+
   // Connect to the data pipe (Go Server)
   bool ConnectPipe(const std::wstring &pipeName);
 

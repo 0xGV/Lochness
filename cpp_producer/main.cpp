@@ -46,6 +46,8 @@ void ControlLoop(ETWWorker *worker) {
       if (ReadFile(hPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
         buffer[bytesRead] = '\0';
         string cmd(buffer);
+        cout << "[DEBUG] Received Control Command: " << cmd
+             << endl; // Debug Log
 
         // Simple parsing logic (Parsing manually to avoid new deps)
         // Expected commands:
@@ -145,6 +147,71 @@ void ControlLoop(ETWWorker *worker) {
               }
             }
             worker->SetProviderFilter(wguid, ids);
+          }
+        } else {
+          // Deep Inspection Commands (No GUID)
+          // Parse "Pid":1234
+          uint32_t pid = 0;
+          size_t pidPos = cmd.find("\"pid\"");
+          if (pidPos == string::npos)
+            pidPos = cmd.find("\"Pid\"");
+
+          if (pidPos != string::npos) {
+            size_t valStart = cmd.find(":", pidPos);
+            if (valStart != string::npos) {
+              // find digits
+              // Skip whitespace/quotes/etc? JSON usually : 1234
+              size_t digitStart = valStart + 1;
+              while (digitStart < cmd.length() && !isdigit(cmd[digitStart]))
+                digitStart++;
+
+              if (digitStart < cmd.length()) {
+                size_t digitEnd = digitStart;
+                while (digitEnd < cmd.length() && isdigit(cmd[digitEnd]))
+                  digitEnd++;
+                try {
+                  pid = (uint32_t)stoi(
+                      cmd.substr(digitStart, digitEnd - digitStart));
+                } catch (...) {
+                }
+              }
+            }
+          }
+
+          if (pid > 0 || cmd.find("ListProcesses") != string::npos) {
+            cout << "[DEBUG] Executing Inspection Command" << endl;
+            wstring wJson = L"";
+            if (cmd.find("GetProcessAncestry") != string::npos) {
+              wJson = worker->GetProcessAncestry(pid);
+            } else if (cmd.find("GetProcessResources") != string::npos) {
+              wJson = worker->GetProcessResources(pid);
+            } else if (cmd.find("GetNetworkConnections") != string::npos) {
+              wJson = worker->GetNetworkConnections(pid);
+            } else if (cmd.find("ScanProcessMemory") != string::npos) {
+              wJson = worker->ScanProcessMemory(pid);
+            } else if (cmd.find("GetProcessThreads") != string::npos) {
+              wJson = worker->GetProcessThreads(pid);
+            } else if (cmd.find("GetProcessDetails") != string::npos) {
+              wJson = worker->GetProcessDetails(pid);
+            } else if (cmd.find("ListProcesses") != string::npos) {
+              wJson = worker->ListProcesses();
+            } else if (cmd.find("GetProcessStrings") != string::npos) {
+              wJson = worker->GetProcessStrings(pid);
+            }
+
+            if (!wJson.empty()) {
+              int len = WideCharToMultiByte(CP_UTF8, 0, wJson.c_str(), -1, NULL,
+                                            0, NULL, NULL);
+              if (len > 0) {
+                response.resize(len - 1);
+                WideCharToMultiByte(CP_UTF8, 0, wJson.c_str(), -1, &response[0],
+                                    len, NULL, NULL);
+              }
+            } else {
+              // Ensure we don't return ACK if json was empty but command
+              // valid-ish
+              response = "{}";
+            }
           }
         }
 
