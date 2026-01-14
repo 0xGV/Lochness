@@ -29,7 +29,49 @@
             font-family: var(--font-mono);
             overflow: hidden;
             display: flex;
+            flex-direction: row;
+            /* Changed to row for sidebar */
+        }
+
+        /* Sidebar Navigation */
+        #global-nav {
+            width: 60px;
+            background: #050505;
+            border-right: 1px solid #333;
+            display: flex;
             flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+            gap: 15px;
+            flex-shrink: 0;
+            z-index: 10000;
+        }
+
+        .nav-item {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            color: #00f0ff;
+            border-color: #00f0ff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+            background: rgba(0, 240, 255, 0.05);
+        }
+
+        .nav-icon {
+            font-size: 1.4rem;
+            line-height: 1;
         }
 
         /* CRT Effects */
@@ -509,6 +551,22 @@
 </head>
 
 <body>
+    <!-- SIDEBAR NAV -->
+    <nav id="global-nav">
+        <a class="nav-item" href="/ui/index.html" title="Config">
+            <div class="nav-icon">⚙</div>
+        </a>
+        <a class="nav-item" href="/ui/timeline.html" title="Timeline">
+            <div class="nav-icon">∿</div>
+        </a>
+        <a class="nav-item active" href="/ui/events.html" title="Table">
+            <div class="nav-icon">≣</div>
+        </a>
+        <a class="nav-item" href="/ui/inspection.html" title="Inspect">
+            <div class="nav-icon">◎</div>
+        </a>
+    </nav>
+
     <div id="terminal-container">
         <header>
             <h1>> SYSTEM_TELEMETRY_TERMINAL</h1>
@@ -568,12 +626,7 @@
         <div class="ctx-item exclude" onclick="applyContextFilter(true)"><span>-</span> FILTER_EXCLUDE</div>
     </div>
 
-    <!-- Mode Capsule -->
-    <div id="mode-capsule">
-        <button class="mode-btn" onclick="window.location.href='/ui/timeline.html'">Timeline</button>
-        <button class="mode-btn active" onclick="window.location.href='/ui/events.html'">Table</button>
-        <button class="mode-btn" onclick="window.location.href='/ui/index.html'">Config</button>
-    </div>
+
 
     <script>
         const searchInput = document.getElementById('searchInput');

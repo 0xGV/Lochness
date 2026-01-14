@@ -46,11 +46,53 @@
 
         #ui-container {
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
+            /* Changed to row for sidebar */
             width: 100vw;
             height: 100vh;
             position: relative;
             z-index: 5;
+        }
+
+        /* Sidebar Navigation */
+        #global-nav {
+            width: 60px;
+            background: #050505;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+            gap: 15px;
+            flex-shrink: 0;
+            z-index: 10000;
+        }
+
+        .nav-item {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            color: #00f0ff;
+            border-color: #00f0ff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+            background: rgba(0, 240, 255, 0.05);
+        }
+
+        .nav-icon {
+            font-size: 1.4rem;
+            line-height: 1;
         }
 
         header {
@@ -686,163 +728,182 @@
 
 <body>
     <div id="ui-container">
-        <header>
-            <h1 class="glitch-text">Lochness Cyberdeck - v1.1.0</h1>
-            <div id="meta-info">REALTIME STREAM | BUFFER: 30m</div>
-        </header>
-        <main id="canvas-wrapper">
-            <canvas id="timeline-canvas"></canvas>
-            <div id="lane-labels-container"></div>
+        <!-- SIDEBAR NAV -->
+        <nav id="global-nav">
+            <a class="nav-item" href="/ui/index.html" title="Config">
+                <div class="nav-icon">⚙</div>
+            </a>
+            <a class="nav-item active" href="/ui/timeline.html" title="Timeline">
+                <div class="nav-icon">∿</div>
+            </a>
+            <a class="nav-item" href="/ui/events.html" title="Table">
+                <div class="nav-icon">≣</div>
+            </a>
+            <a class="nav-item" href="/ui/inspection.html" title="Inspect">
+                <div class="nav-icon">◎</div>
+            </a>
+        </nav>
 
-            <div id="sidebar-toggle" onclick="toggleSidebar()" title="Providers Config">
-                <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
-                <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
-                <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;"></div>
-            </div>
+        <div style="display:flex; flex-direction:column; flex:1; min-width:0; position:relative;">
+            <header>
+                <h1 class="glitch-text">Lochness Cyberdeck - v1.1.0</h1>
+                <div id="meta-info">REALTIME STREAM | BUFFER: 30m</div>
+            </header>
+            <main id="canvas-wrapper">
+                <canvas id="timeline-canvas"></canvas>
+                <div id="lane-labels-container"></div>
 
-            <div id="view-toggle" onclick="toggleViewControls(event)" title="View Settings">
-                <div style="font-size: 20px; line-height: 1;">👁</div>
-            </div>
-
-            <div id="multiselect-toggle" onclick="toggleMultiSelectMode()" title="Multi-Select Mode">
-                <div style="font-size: 24px; line-height: 1; padding-top: 5px;">*</div>
-            </div>
-
-            <div id="areaselect-toggle" onclick="toggleAreaSelectMode()" title="Area Select Mode">
-                <div style="font-size: 20px; line-height: 1; font-weight: bold; transform: scale(1.5);">□</div>
-            </div>
-
-            <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
-
-            <div id="provider-sidebar">
-                <div class="sidebar-header">CYBERDECK CONFIG</div>
-                <div id="provider-list" style="flex: 1; overflow-y: auto;">
-                    <!-- Loaded dynamically -->
-                    <div style="color:#666; font-size:0.8rem; text-align:center; margin-top:50px;">SUBSYSTEM SCAN...
+                <div id="sidebar-toggle" onclick="toggleSidebar()" title="Providers Config">
+                    <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;">
+                    </div>
+                    <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;">
+                    </div>
+                    <div style="width:20px; height:2px; background:currentColor; margin:3px 0; border-radius:1px;">
                     </div>
                 </div>
-                <div class="flush-btn" onclick="flushCache()">FLUSH CACHE BUFFER</div>
-            </div>
 
-            <div id="controls" onclick="event.stopPropagation()">
-                <button class="btn" onclick="resetZoom()">Reset Vision</button>
-                <button class="btn" onclick="setZoomLevel(1)">Lv 1 (3m)</button>
-                <button class="btn" onclick="setZoomLevel(2)">Lv 2 (10m)</button>
-                <button class="btn" onclick="setZoomLevel(3)">Lv 3 (30m)</button>
-                <button class="btn" id="autofollow-btn" onclick="toggleAutoFollow()">Auto-Follow: ON</button>
-                <button class="btn" onclick="showAllStreams()"
-                    style="border-color: var(--accent-magenta); color: var(--accent-magenta);">Restore Hidden
-                    Streams</button>
-            </div>
-
-            <!-- Unified Inspector Overlay -->
-            <div id="inspector-overlay" onclick="closeCarousel(event)">
-                <!-- Detail Panel (Telescope) -->
-                <div id="telescope-panel" class="inspector-panel"
-                    style="width:600px; border:2px solid var(--accent-cyan); border-right:none; display:none;"
-                    onclick="event.stopPropagation()">
-                    <div style="padding: 30px; padding-bottom: 0;">
-                        <button class="btn"
-                            style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
-                            onclick="document.getElementById('telescope-panel').style.display='none'">Abort
-                            View</button>
-                    </div>
-                    <div id="telescope-content" style="padding:30px; padding-top:10px; overflow-y:auto; flex:1;"></div>
+                <div id="view-toggle" onclick="toggleViewControls(event)" title="View Settings">
+                    <div style="font-size: 20px; line-height: 1;">👁</div>
                 </div>
 
-                <!-- Selection Panel (Carousel) -->
-                <div id="carousel-panel" class="inspector-panel"
-                    style="width:400px; border:2px solid var(--accent-magenta); padding:30px; padding-top:10px;"
-                    onclick="event.stopPropagation()">
-                    <div
-                        style="color:var(--accent-magenta); font-weight:bold; margin-bottom:15px; font-size:0.8rem; letter-spacing:2px; display:flex; justify-content:space-between;">
-                        <span>CLUSTER DETECTED</span>
-                        <span id="carousel-stats" style="color:#666;"></span>
-                    </div>
-                    <div id="carousel-list" style="flex: 1; overflow-y: auto;"></div>
-
-                    <div class="pagination-ctrl">
-                        <button class="btn" id="prev-btn" onclick="prevPage()">PREV</button>
-                        <span id="page-indicator" style="font-size:0.8rem; color:var(--accent-magenta);">PAGE 1 /
-                            1</span>
-                        <button class="btn" id="next-btn" onclick="nextPage()">NEXT</button>
-                    </div>
-
-                    <button class="btn"
-                        style="width:100%; margin-top:15px; border-color:var(--accent-magenta); color:var(--accent-magenta);"
-                        onclick="closeCarousel(event)">Abort Selection</button>
+                <div id="multiselect-toggle" onclick="toggleMultiSelectMode()" title="Multi-Select Mode">
+                    <div style="font-size: 24px; line-height: 1; padding-top: 5px;">*</div>
                 </div>
-            </div>
 
-            <!-- Standalone Telescope Overlay -->
-            <div id="telescope-overlay" onclick="closeTelescope(event)">
-                <div id="telescope-window" onclick="event.stopPropagation()">
-                    <div style="margin-bottom: 20px;">
-                        <button class="btn"
-                            style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
-                            onclick="closeTelescope(event)">Abort View</button>
-                    </div>
-                    <div id="telescope-standalone-content" style="overflow-y:auto; padding-top:10px;"></div>
+                <div id="areaselect-toggle" onclick="toggleAreaSelectMode()" title="Area Select Mode">
+                    <div style="font-size: 20px; line-height: 1; font-weight: bold; transform: scale(1.5);">□</div>
                 </div>
-            </div>
 
-            <!-- Advanced Settings Modal -->
-            <div id="advanced-settings-overlay" onclick="closeAdvancedSettings()"
-                style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9000; justify-content:center; align-items:center;">
-                <div id="advanced-settings-window" onclick="event.stopPropagation()"
-                    style="width:800px; height:80vh; background:#111; border:2px solid var(--accent-cyan); display:flex; flex-direction:column; padding:20px; box-shadow:0 0 50px rgba(0,243,255,0.2);">
-                    <div
-                        style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:15px; margin-bottom:15px;">
-                        <span id="adv-settings-title"
-                            style="color:var(--accent-cyan); font-size:1.2rem; font-weight:bold;">PROVIDER
-                            SETTINGS</span>
-                        <button class="btn" onclick="closeAdvancedSettings()">CLOSE</button>
-                    </div>
+                <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-                    <div style="flex:1; overflow-y:auto; margin-bottom:20px;">
-                        <div style="margin-bottom:15px; color:#aaa; font-size:0.9rem;">
-                            Event Filtering: Select events to capture. Deselect to ignore.
-                            <br>
-                            <span style="font-size:0.8rem; color:#666;">Note: If no events are selected (or filter
-                                cleared), ALL events are captured.</span>
+                <div id="provider-sidebar">
+                    <div class="sidebar-header">CYBERDECK CONFIG</div>
+                    <div id="provider-list" style="flex: 1; overflow-y: auto;">
+                        <!-- Loaded dynamically -->
+                        <div style="color:#666; font-size:0.8rem; text-align:center; margin-top:50px;">SUBSYSTEM SCAN...
                         </div>
-                        <div id="adv-settings-content">
-                            <table style="width:100%; border-collapse:collapse; color:#ccc; font-size:0.85rem;">
-                                <thead>
-                                    <tr
-                                        style="text-align:left; border-bottom:1px solid #444; color:var(--accent-magenta);">
-                                        <th style="padding:8px;"><input type="checkbox" id="adv-select-all"
-                                                onchange="toggleAllEvents(this.checked)"></th>
-                                        <th style="padding:8px;">ID</th>
-                                        <th style="padding:8px;">Ver</th>
-                                        <th style="padding:8px;">Level</th>
-                                        <th style="padding:8px;">Keyword</th>
-                                        <th style="padding:8px;">Description</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="adv-event-list"></tbody>
-                            </table>
-                            <div id="adv-loading" style="text-align:center; padding:20px; color:var(--accent-cyan);">
-                                Loading metadata...</div>
+                    </div>
+                    <div class="flush-btn" onclick="flushCache()">FLUSH CACHE BUFFER</div>
+                </div>
+
+                <div id="controls" onclick="event.stopPropagation()">
+                    <button class="btn" onclick="resetZoom()">Reset Vision</button>
+                    <button class="btn" onclick="setZoomLevel(1)">Lv 1 (3m)</button>
+                    <button class="btn" onclick="setZoomLevel(2)">Lv 2 (10m)</button>
+                    <button class="btn" onclick="setZoomLevel(3)">Lv 3 (30m)</button>
+                    <button class="btn" id="autofollow-btn" onclick="toggleAutoFollow()">Auto-Follow: ON</button>
+                    <button class="btn" onclick="showAllStreams()"
+                        style="border-color: var(--accent-magenta); color: var(--accent-magenta);">Restore Hidden
+                        Streams</button>
+                </div>
+
+                <!-- Unified Inspector Overlay -->
+                <div id="inspector-overlay" onclick="closeCarousel(event)">
+                    <!-- Detail Panel (Telescope) -->
+                    <div id="telescope-panel" class="inspector-panel"
+                        style="width:600px; border:2px solid var(--accent-cyan); border-right:none; display:none;"
+                        onclick="event.stopPropagation()">
+                        <div style="padding: 30px; padding-bottom: 0;">
+                            <button class="btn"
+                                style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
+                                onclick="document.getElementById('telescope-panel').style.display='none'">Abort
+                                View</button>
+                        </div>
+                        <div id="telescope-content" style="padding:30px; padding-top:10px; overflow-y:auto; flex:1;">
                         </div>
                     </div>
 
-                    <div style="display:flex; justify-content:flex-end; gap:10px;">
-                        <button class="btn" style="border-color:#666; color:#aaa;" onclick="clearFilters()">CLEAR FILTER
-                            (ALLOW ALL)</button>
-                        <button class="btn" onclick="applyAdvancedSettings()">APPLY CHANGES</button>
+                    <!-- Selection Panel (Carousel) -->
+                    <div id="carousel-panel" class="inspector-panel"
+                        style="width:400px; border:2px solid var(--accent-magenta); padding:30px; padding-top:10px;"
+                        onclick="event.stopPropagation()">
+                        <div
+                            style="color:var(--accent-magenta); font-weight:bold; margin-bottom:15px; font-size:0.8rem; letter-spacing:2px; display:flex; justify-content:space-between;">
+                            <span>CLUSTER DETECTED</span>
+                            <span id="carousel-stats" style="color:#666;"></span>
+                        </div>
+                        <div id="carousel-list" style="flex: 1; overflow-y: auto;"></div>
+
+                        <div class="pagination-ctrl">
+                            <button class="btn" id="prev-btn" onclick="prevPage()">PREV</button>
+                            <span id="page-indicator" style="font-size:0.8rem; color:var(--accent-magenta);">PAGE 1 /
+                                1</span>
+                            <button class="btn" id="next-btn" onclick="nextPage()">NEXT</button>
+                        </div>
+
+                        <button class="btn"
+                            style="width:100%; margin-top:15px; border-color:var(--accent-magenta); color:var(--accent-magenta);"
+                            onclick="closeCarousel(event)">Abort Selection</button>
                     </div>
                 </div>
-            </div>
+
+                <!-- Standalone Telescope Overlay -->
+                <div id="telescope-overlay" onclick="closeTelescope(event)">
+                    <div id="telescope-window" onclick="event.stopPropagation()">
+                        <div style="margin-bottom: 20px;">
+                            <button class="btn"
+                                style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
+                                onclick="closeTelescope(event)">Abort View</button>
+                        </div>
+                        <div id="telescope-standalone-content" style="overflow-y:auto; padding-top:10px;"></div>
+                    </div>
+                </div>
+
+                <!-- Advanced Settings Modal -->
+                <div id="advanced-settings-overlay" onclick="closeAdvancedSettings()"
+                    style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:9000; justify-content:center; align-items:center;">
+                    <div id="advanced-settings-window" onclick="event.stopPropagation()"
+                        style="width:800px; height:80vh; background:#111; border:2px solid var(--accent-cyan); display:flex; flex-direction:column; padding:20px; box-shadow:0 0 50px rgba(0,243,255,0.2);">
+                        <div
+                            style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333; padding-bottom:15px; margin-bottom:15px;">
+                            <span id="adv-settings-title"
+                                style="color:var(--accent-cyan); font-size:1.2rem; font-weight:bold;">PROVIDER
+                                SETTINGS</span>
+                            <button class="btn" onclick="closeAdvancedSettings()">CLOSE</button>
+                        </div>
+
+                        <div style="flex:1; overflow-y:auto; margin-bottom:20px;">
+                            <div style="margin-bottom:15px; color:#aaa; font-size:0.9rem;">
+                                Event Filtering: Select events to capture. Deselect to ignore.
+                                <br>
+                                <span style="font-size:0.8rem; color:#666;">Note: If no events are selected (or filter
+                                    cleared), ALL events are captured.</span>
+                            </div>
+                            <div id="adv-settings-content">
+                                <table style="width:100%; border-collapse:collapse; color:#ccc; font-size:0.85rem;">
+                                    <thead>
+                                        <tr
+                                            style="text-align:left; border-bottom:1px solid #444; color:var(--accent-magenta);">
+                                            <th style="padding:8px;"><input type="checkbox" id="adv-select-all"
+                                                    onchange="toggleAllEvents(this.checked)"></th>
+                                            <th style="padding:8px;">ID</th>
+                                            <th style="padding:8px;">Ver</th>
+                                            <th style="padding:8px;">Level</th>
+                                            <th style="padding:8px;">Keyword</th>
+                                            <th style="padding:8px;">Description</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="adv-event-list"></tbody>
+                                </table>
+                                <div id="adv-loading"
+                                    style="text-align:center; padding:20px; color:var(--accent-cyan);">
+                                    Loading metadata...</div>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; justify-content:flex-end; gap:10px;">
+                            <button class="btn" style="border-color:#666; color:#aaa;" onclick="clearFilters()">CLEAR
+                                FILTER
+                                (ALLOW ALL)</button>
+                            <button class="btn" onclick="applyAdvancedSettings()">APPLY CHANGES</button>
+                        </div>
+                    </div>
+                </div>
 
 
-            <!-- Mode Capsule -->
-            <div id="mode-capsule">
-                <button class="mode-btn active" onclick="window.location.href='/ui/timeline.html'">Timeline</button>
-                <button class="mode-btn" onclick="window.location.href='/ui/events.html'">Table</button>
-                <button class="mode-btn" onclick="window.location.href='/ui/index.html'">Config</button>
-            </div>
-        </main>
+                <!-- Mode Capsule -->
+            </main>
+        </div> <!-- End of content wrapper -->
     </div>
 
     <script>
@@ -1224,7 +1285,8 @@
         let marqueeEnd = { x: 0, y: 0 };
 
         function resize() {
-            canvas.width = window.innerWidth;
+            // Updated to respect sidebar (clientWidth of wrapper)
+            canvas.width = document.getElementById('canvas-wrapper').clientWidth;
             canvas.height = window.innerHeight - headerHeight();
             draw();
         }

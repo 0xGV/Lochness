@@ -523,141 +523,194 @@
     </style>
 </head>
 
+<style>
+    /* Sidebar Navigation */
+    #global-nav {
+        width: 60px;
+        background: #0a0a0a;
+        border-right: 1px solid #333;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 20px;
+        gap: 15px;
+        flex-shrink: 0;
+        z-index: 10000;
+    }
+
+    .nav-item {
+        width: 40px;
+        height: 40px;
+        border: 1px solid #333;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        color: #666;
+        cursor: pointer;
+        transition: all 0.2s;
+        border-radius: 4px;
+        text-decoration: none;
+    }
+
+    .nav-item:hover,
+    .nav-item.active {
+        color: #00f0ff;
+        border-color: #00f0ff;
+        box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+        background: rgba(0, 240, 255, 0.05);
+    }
+
+    .nav-icon {
+        font-size: 1.4rem;
+        line-height: 1;
+    }
+</style>
+</head>
+
 <body>
+    <div style="display: flex; width: 100%; height: 100vh; overflow: hidden;">
+        <!-- SIDEBAR NAV -->
+        <nav id="global-nav">
+            <a class="nav-item active" href="/ui/index.html" title="Config">
+                <div class="nav-icon">⚙</div>
+            </a>
+            <a class="nav-item" href="/ui/timeline.html" title="Timeline">
+                <div class="nav-icon">∿</div>
+            </a>
+            <a class="nav-item" href="/ui/events.html" title="Table">
+                <div class="nav-icon">≣</div>
+            </a>
+            <a class="nav-item" href="/ui/inspection.html" title="Inspect">
+                <div class="nav-icon">◎</div>
+            </a>
+        </nav>
 
-    <body>
-        <div style="display: flex; width: 100%; height: 100vh; overflow: hidden;">
-            <!-- RACK SIDEBAR -->
-            <aside id="rack-sidebar">
-                <div class="rack-header">SUBSYSTEM_RACK</div>
-                <div id="rack-list" style="flex-grow:1; overflow-y:auto; padding-right:5px;"></div>
-                <div style="margin-top:20px; border-top:1px solid #333; padding-top:15px;">
-                    <button class="btn" style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
-                        onclick="createSubsystem()">+ COMPILE_SUBSYSTEM</button>
-                </div>
-            </aside>
+        <!-- RACK SIDEBAR -->
+        <aside id="rack-sidebar">
+            <div class="rack-header">SUBSYSTEM_RACK</div>
+            <div id="rack-list" style="flex-grow:1; overflow-y:auto; padding-right:5px;"></div>
+            <div style="margin-top:20px; border-top:1px solid #333; padding-top:15px;">
+                <button class="btn" style="width:100%; border-color:var(--accent-cyan); color:var(--accent-cyan);"
+                    onclick="createSubsystem()">+ COMPILE_SUBSYSTEM</button>
+            </div>
+        </aside>
 
-            <div id="app-container" style="flex-grow:1; position:relative;">
-                <header>
-                    <h1>LOCHNESS // CONFIG_SUITE</h1>
-                    <div id="system-status" style="color: var(--accent-amber); font-size: 0.75rem;">SERIAL: CONNECTED //
-                        SYNC_ACTIVE</div>
-                </header>
+        <div id="app-container" style="flex-grow:1; position:relative;">
+            <header>
+                <h1>LOCHNESS // CONFIG_SUITE</h1>
+                <div id="system-status" style="color: var(--accent-amber); font-size: 0.75rem;">SERIAL: CONNECTED //
+                    SYNC_ACTIVE</div>
+            </header>
 
-                <div class="controls-row">
-                    <input type="text" id="providerSearch" class="search-input"
-                        placeholder="SEARCH_PROVIDERS_BY_IDENTIFIER...">
-                    <button class="btn btn-magenta" onclick="flushAll()">FLUSH_ALL_CACHE</button>
-                </div>
+            <div class="controls-row">
+                <input type="text" id="providerSearch" class="search-input"
+                    placeholder="SEARCH_PROVIDERS_BY_IDENTIFIER...">
+                <button class="btn btn-magenta" onclick="flushAll()">FLUSH_ALL_CACHE</button>
+            </div>
 
-                <div class="main-content">
-                    <div id="providerGrid" class="provider-grid">
-                        <!-- Data goes here -->
-                    </div>
+            <div class="main-content">
+                <div id="providerGrid" class="provider-grid">
+                    <!-- Data goes here -->
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Advanced Settings Overlay -->
-        <div id="adv-overlay" class="overlay" onclick="closeAdv()">
-            <div class="modal" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <div style="display:flex; flex-direction:column;">
-                        <span id="modal-title"
-                            style="color:var(--accent-cyan); font-weight:bold; font-size:1.1rem;">PROV_META</span>
-                        <span id="modal-guid" style="color:#444; font-size:0.7rem;">GUID: ---</span>
-                    </div>
-                    <button class="btn" onclick="closeAdv()">DISMISS</button>
+    <!-- Advanced Settings Overlay -->
+    <div id="adv-overlay" class="overlay" onclick="closeAdv()">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <div style="display:flex; flex-direction:column;">
+                    <span id="modal-title"
+                        style="color:var(--accent-cyan); font-weight:bold; font-size:1.1rem;">PROV_META</span>
+                    <span id="modal-guid" style="color:#444; font-size:0.7rem;">GUID: ---</span>
                 </div>
+                <button class="btn" onclick="closeAdv()">DISMISS</button>
+            </div>
 
-                <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
-                    <input type="text" id="eventSearch" class="search-input" style="height: 30px;"
-                        placeholder="FILTER_EVENTS_BY_NAME_OR_ID...">
-                    <button class="btn" style="height: 30px; font-size: 0.7rem;"
-                        onclick="toggleAllFilters(true)">ALL</button>
-                    <button class="btn" style="height: 30px; font-size: 0.7rem;"
-                        onclick="toggleAllFilters(false)">NONE</button>
-                </div>
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="eventSearch" class="search-input" style="height: 30px;"
+                    placeholder="FILTER_EVENTS_BY_NAME_OR_ID...">
+                <button class="btn" style="height: 30px; font-size: 0.7rem;"
+                    onclick="toggleAllFilters(true)">ALL</button>
+                <button class="btn" style="height: 30px; font-size: 0.7rem;"
+                    onclick="toggleAllFilters(false)">NONE</button>
+            </div>
 
-                <div class="modal-body">
-                    <div id="adv-loading" class="loading-shimmer">RETRIEVING_SUBSYSTEM_METADATA...</div>
-                    <table id="adv-table">
-                        <thead>
-                            <tr>
-                                <th style="width:30px;"></th>
-                                <th style="width:60px;">ID</th>
-                                <th style="width:120px;">SEVERITY</th>
-                                <th style="width:120px;">OPCODE</th>
-                                <th style="width:120px;">TASK</th>
-                                <th>DESCRIPTION_MAP</th>
-                            </tr>
-                        </thead>
-                        <tbody id="adv-tbody"></tbody>
-                    </table>
-                </div>
+            <div class="modal-body">
+                <div id="adv-loading" class="loading-shimmer">RETRIEVING_SUBSYSTEM_METADATA...</div>
+                <table id="adv-table">
+                    <thead>
+                        <tr>
+                            <th style="width:30px;"></th>
+                            <th style="width:60px;">ID</th>
+                            <th style="width:120px;">SEVERITY</th>
+                            <th style="width:120px;">OPCODE</th>
+                            <th style="width:120px;">TASK</th>
+                            <th>DESCRIPTION_MAP</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adv-tbody"></tbody>
+                </table>
+            </div>
 
-                <div class="modal-footer">
-                    <button class="btn" style="border-color:#666;" onclick="clearAllFilters()">DISABLE_ALL_FILTERS
-                        (ALLOW
-                        ALL)</button>
-                    <button class="btn" style="border-color:var(--accent-cyan); color:var(--accent-cyan);"
-                        onclick="applyFilters()">APPLY_CALIBRATION</button>
-                </div>
+            <div class="modal-footer">
+                <button class="btn" style="border-color:#666;" onclick="clearAllFilters()">DISABLE_ALL_FILTERS
+                    (ALLOW
+                    ALL)</button>
+                <button class="btn" style="border-color:var(--accent-cyan); color:var(--accent-cyan);"
+                    onclick="applyFilters()">APPLY_CALIBRATION</button>
             </div>
         </div>
+    </div>
 
-        <!-- Mode Capsule -->
-        <div id="mode-capsule">
-            <button class="mode-btn" onclick="window.location.href='/ui/timeline.html'">Timeline</button>
-            <button class="mode-btn" onclick="window.location.href='/ui/events.html'">Table</button>
-            <button class="mode-btn active" onclick="window.location.href='/ui/index.html'">Config</button>
-        </div>
 
-        <script>
-            const grid = document.getElementById('providerGrid');
-            const searchInput = document.getElementById('providerSearch');
-            const modal = document.getElementById('adv-overlay');
-            const advTbody = document.getElementById('adv-tbody');
-            const advLoading = document.getElementById('adv-loading');
-            const eventSearch = document.getElementById('eventSearch');
-            const rackList = document.getElementById('rack-list');
 
-            let allProviders = [];
-            let currentMetadata = [];
-            let currentProviderGuid = null;
-            let groups = {};
-            let selectedGuids = new Set();
+    <script>
+        const grid = document.getElementById('providerGrid');
+        const searchInput = document.getElementById('providerSearch');
+        const modal = document.getElementById('adv-overlay');
+        const advTbody = document.getElementById('adv-tbody');
+        const advLoading = document.getElementById('adv-loading');
+        const eventSearch = document.getElementById('eventSearch');
+        const rackList = document.getElementById('rack-list');
 
-            async function init() {
-                await refresh();
-                setInterval(refresh, 5000);
-            }
+        let allProviders = [];
+        let currentMetadata = [];
+        let currentProviderGuid = null;
+        let groups = {};
+        let selectedGuids = new Set();
 
-            async function refresh() {
-                try {
-                    const res = await fetch('/api/providers');
-                    allProviders = await res.json();
-                    renderGrid();
+        async function init() {
+            await refresh();
+            setInterval(refresh, 5000);
+        }
 
-                    // Fetch Groups
-                    const grpRes = await fetch('/api/groups');
-                    groups = await grpRes.json();
-                    renderRack();
-                } catch (e) { console.error(e); }
-            }
+        async function refresh() {
+            try {
+                const res = await fetch('/api/providers');
+                allProviders = await res.json();
+                renderGrid();
 
-            function renderGrid() {
-                const query = searchInput.value.toLowerCase();
-                const filtered = allProviders.filter(p =>
-                    p.name.toLowerCase().includes(query) || p.guid.toLowerCase().includes(query)
-                );
+                // Fetch Groups
+                const grpRes = await fetch('/api/groups');
+                groups = await grpRes.json();
+                renderRack();
+            } catch (e) { console.error(e); }
+        }
 
-                grid.innerHTML = '';
-                filtered.forEach(p => {
-                    const card = document.createElement('div');
-                    card.className = 'provider-card';
-                    const isChecked = selectedGuids.has(p.guid) ? 'checked' : '';
-                    card.innerHTML = `
+        function renderGrid() {
+            const query = searchInput.value.toLowerCase();
+            const filtered = allProviders.filter(p =>
+                p.name.toLowerCase().includes(query) || p.guid.toLowerCase().includes(query)
+            );
+
+            grid.innerHTML = '';
+            filtered.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'provider-card';
+                const isChecked = selectedGuids.has(p.guid) ? 'checked' : '';
+                card.innerHTML = `
                     <input type="checkbox" class="card-check" value="${p.guid}" ${isChecked} onchange="toggleSelection('${p.guid}', this.checked)">
                     <div class="provider-info">
                         <span class="p-name">${p.name}</span>
@@ -672,42 +725,42 @@
                         </label>
                     </div>
                 `;
-                    grid.appendChild(card);
+                grid.appendChild(card);
+            });
+        }
+
+        function toggleSelection(guid, checked) {
+            if (checked) selectedGuids.add(guid);
+            else selectedGuids.delete(guid);
+        }
+
+        /* RACK LOGIC */
+        function renderRack() {
+            rackList.innerHTML = '';
+            for (const [name, guids] of Object.entries(groups)) {
+                // Determine group status (Are all enabled?)
+                // We need to resolve GUIDs to current provider states
+                let allActive = true;
+                let anyActive = false;
+
+                guids.forEach(g => {
+                    const clean = g.replace(/[{}]/g, '').toUpperCase();
+                    const p = allProviders.find(ap => ap.guid.replace(/[{}]/g, '').toUpperCase() === clean);
+                    if (p) {
+                        if (p.enabled) anyActive = true;
+                        else allActive = false;
+                    } else {
+                        // Provider might be missing? Assume inactive?
+                        allActive = false;
+                    }
                 });
-            }
 
-            function toggleSelection(guid, checked) {
-                if (checked) selectedGuids.add(guid);
-                else selectedGuids.delete(guid);
-            }
+                const mod = document.createElement('div');
+                mod.className = 'rack-module';
+                const statusColor = allActive ? 'var(--accent-green)' : (anyActive ? 'var(--accent-amber)' : '#555');
+                const title = allActive ? 'ONLINE' : (anyActive ? 'PARTIAL' : 'OFFLINE');
 
-            /* RACK LOGIC */
-            function renderRack() {
-                rackList.innerHTML = '';
-                for (const [name, guids] of Object.entries(groups)) {
-                    // Determine group status (Are all enabled?)
-                    // We need to resolve GUIDs to current provider states
-                    let allActive = true;
-                    let anyActive = false;
-
-                    guids.forEach(g => {
-                        const clean = g.replace(/[{}]/g, '').toUpperCase();
-                        const p = allProviders.find(ap => ap.guid.replace(/[{}]/g, '').toUpperCase() === clean);
-                        if (p) {
-                            if (p.enabled) anyActive = true;
-                            else allActive = false;
-                        } else {
-                            // Provider might be missing? Assume inactive?
-                            allActive = false;
-                        }
-                    });
-
-                    const mod = document.createElement('div');
-                    mod.className = 'rack-module';
-                    const statusColor = allActive ? 'var(--accent-green)' : (anyActive ? 'var(--accent-amber)' : '#555');
-                    const title = allActive ? 'ONLINE' : (anyActive ? 'PARTIAL' : 'OFFLINE');
-
-                    mod.innerHTML = `
+                mod.innerHTML = `
                     <div class="rm-delete" onclick="deleteSubsystem('${name}')">X</div>
                     <div class="rm-info">
                         <div class="rm-title">${name}</div>
@@ -717,93 +770,93 @@
                         <div class="rm-lever"></div>
                     </div>
                 `;
-                    rackList.appendChild(mod);
-                }
+                rackList.appendChild(mod);
             }
+        }
 
-            async function createSubsystem() {
-                if (selectedGuids.size === 0) {
-                    alert("SELECT_PROVIDERS_FROM_GRID_FIRST");
-                    return;
-                }
-                const name = prompt("ENTER_SUBSYSTEM_DESIGNATOR:");
-                if (!name) return;
+        async function createSubsystem() {
+            if (selectedGuids.size === 0) {
+                alert("SELECT_PROVIDERS_FROM_GRID_FIRST");
+                return;
+            }
+            const name = prompt("ENTER_SUBSYSTEM_DESIGNATOR:");
+            if (!name) return;
 
-                const guids = Array.from(selectedGuids);
+            const guids = Array.from(selectedGuids);
 
-                await fetch('/api/groups', {
+            await fetch('/api/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, guids })
+            });
+            refresh();
+        }
+
+        async function deleteSubsystem(name) {
+            if (!confirm("DISMANTLE_SUBSYSTEM?")) return;
+            await fetch(`/api/groups?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+            refresh();
+        }
+
+        async function toggleGroup(name, isActive) {
+            const newState = !isActive;
+            await fetch('/api/groups/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, enable: newState })
+            });
+            setTimeout(refresh, 500); // Give backend time to propagate
+        }
+
+        async function toggleProv(guid, enable) {
+            try {
+                const action = enable ? 'Enable' : 'Disable';
+                const cleanGuid = guid.replace(/[{}]/g, '').toUpperCase();
+                await fetch('/config/providers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, guids })
+                    body: JSON.stringify({ action: action, provider: cleanGuid })
                 });
                 refresh();
+            } catch (e) { console.error(e); }
+        }
+
+        async function openAdv(guid, name) {
+            currentProviderGuid = guid;
+            document.getElementById('modal-title').innerText = "PROVIDER :: " + name.toUpperCase();
+            document.getElementById('modal-guid').innerText = "GUID: " + guid;
+            modal.style.display = 'flex';
+            advTbody.innerHTML = '';
+            advLoading.style.display = 'flex';
+
+            try {
+                const res = await fetch(`/api/providers/${guid}/events?name=${encodeURIComponent(name)}`);
+                currentMetadata = await res.json();
+                renderAdvTable();
+            } catch (e) {
+                advLoading.innerText = "FAILED_TO_LINK_SUBSYSTEM";
             }
+        }
 
-            async function deleteSubsystem(name) {
-                if (!confirm("DISMANTLE_SUBSYSTEM?")) return;
-                await fetch(`/api/groups?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
-                refresh();
-            }
+        function closeAdv() { modal.style.display = 'none'; }
 
-            async function toggleGroup(name, isActive) {
-                const newState = !isActive;
-                await fetch('/api/groups/toggle', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, enable: newState })
-                });
-                setTimeout(refresh, 500); // Give backend time to propagate
-            }
+        function renderAdvTable() {
+            advLoading.style.display = 'none';
+            const query = eventSearch.value.toLowerCase();
 
-            async function toggleProv(guid, enable) {
-                try {
-                    const action = enable ? 'Enable' : 'Disable';
-                    const cleanGuid = guid.replace(/[{}]/g, '').toUpperCase();
-                    await fetch('/config/providers', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: action, provider: cleanGuid })
-                    });
-                    refresh();
-                } catch (e) { console.error(e); }
-            }
+            advTbody.innerHTML = '';
+            currentMetadata.sort((a, b) => a.Id - b.Id).forEach(e => {
+                if (query && !e.Description?.toLowerCase().includes(query) && !e.Id.toString().includes(query)) return;
 
-            async function openAdv(guid, name) {
-                currentProviderGuid = guid;
-                document.getElementById('modal-title').innerText = "PROVIDER :: " + name.toUpperCase();
-                document.getElementById('modal-guid').innerText = "GUID: " + guid;
-                modal.style.display = 'flex';
-                advTbody.innerHTML = '';
-                advLoading.style.display = 'flex';
+                let level = e.LevelStr || e.Level;
+                if (e.Level == 1) level = "CRITICAL";
+                else if (e.Level == 2) level = "ERROR";
+                else if (e.Level == 3) level = "WARNING";
+                else if (e.Level == 4) level = "INFO";
+                else if (e.Level == 5) level = "VERBOSE";
 
-                try {
-                    const res = await fetch(`/api/providers/${guid}/events?name=${encodeURIComponent(name)}`);
-                    currentMetadata = await res.json();
-                    renderAdvTable();
-                } catch (e) {
-                    advLoading.innerText = "FAILED_TO_LINK_SUBSYSTEM";
-                }
-            }
-
-            function closeAdv() { modal.style.display = 'none'; }
-
-            function renderAdvTable() {
-                advLoading.style.display = 'none';
-                const query = eventSearch.value.toLowerCase();
-
-                advTbody.innerHTML = '';
-                currentMetadata.sort((a, b) => a.Id - b.Id).forEach(e => {
-                    if (query && !e.Description?.toLowerCase().includes(query) && !e.Id.toString().includes(query)) return;
-
-                    let level = e.LevelStr || e.Level;
-                    if (e.Level == 1) level = "CRITICAL";
-                    else if (e.Level == 2) level = "ERROR";
-                    else if (e.Level == 3) level = "WARNING";
-                    else if (e.Level == 4) level = "INFO";
-                    else if (e.Level == 5) level = "VERBOSE";
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
                 <td><input type="checkbox" class="evt-cb" value="${e.Id}" checked></td>
                     <td style="color:var(--accent-cyan);">${e.Id}</td>
                     <td style="color:${level === 'ERROR' || level === 'CRITICAL' ? 'var(--accent-magenta)' : 'inherit'}">${level}</td>
@@ -811,53 +864,53 @@
                     <td>${e.TaskStr || e.Task || '-'}</td>
                     <td style="font-size:0.7rem; color:#666;">${e.Description || 'NO_DESCRIPTION_AVAILABLE'}</td>
                 `;
-                    advTbody.appendChild(tr);
+                advTbody.appendChild(tr);
+            });
+        }
+
+        function toggleAllFilters(val) {
+            document.querySelectorAll('.evt-cb').forEach(cb => cb.checked = val);
+        }
+
+        async function applyFilters() {
+            const ids = Array.from(document.querySelectorAll('.evt-cb:checked')).map(cb => parseInt(cb.value));
+            try {
+                const cleanGuid = currentProviderGuid.replace(/[{}]/g, '').toUpperCase();
+                const res = await fetch(`/ api / providers / ${cleanGuid} / filters`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_ids: ids })
                 });
+                if (res.ok) alert("CALIBRATION_APPLIED");
+                closeAdv();
+            } catch (e) { alert("SYNC_FAILURE"); }
+        }
+
+        async function clearAllFilters() {
+            if (confirm("ALLOW_ALL_EVENTS?")) {
+                const cleanGuid = currentProviderGuid.replace(/[{}]/g, '').toUpperCase();
+                const res = await fetch(`/ api / providers / ${cleanGuid} / filters`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ event_ids: [] })
+                });
+                if (res.ok) alert("FILTERS_CLEARED");
+                closeAdv();
             }
+        }
 
-            function toggleAllFilters(val) {
-                document.querySelectorAll('.evt-cb').forEach(cb => cb.checked = val);
+        async function flushAll() {
+            if (confirm("PURGE_TELEMETRY_CACHE?")) {
+                await fetch('/events/flush', { method: 'POST' });
+                alert("CACHE_PURGED");
             }
+        }
 
-            async function applyFilters() {
-                const ids = Array.from(document.querySelectorAll('.evt-cb:checked')).map(cb => parseInt(cb.value));
-                try {
-                    const cleanGuid = currentProviderGuid.replace(/[{}]/g, '').toUpperCase();
-                    const res = await fetch(`/ api / providers / ${cleanGuid} / filters`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ event_ids: ids })
-                    });
-                    if (res.ok) alert("CALIBRATION_APPLIED");
-                    closeAdv();
-                } catch (e) { alert("SYNC_FAILURE"); }
-            }
+        searchInput.addEventListener('input', renderGrid);
+        eventSearch.addEventListener('input', renderAdvTable);
 
-            async function clearAllFilters() {
-                if (confirm("ALLOW_ALL_EVENTS?")) {
-                    const cleanGuid = currentProviderGuid.replace(/[{}]/g, '').toUpperCase();
-                    const res = await fetch(`/ api / providers / ${cleanGuid} / filters`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ event_ids: [] })
-                    });
-                    if (res.ok) alert("FILTERS_CLEARED");
-                    closeAdv();
-                }
-            }
-
-            async function flushAll() {
-                if (confirm("PURGE_TELEMETRY_CACHE?")) {
-                    await fetch('/events/flush', { method: 'POST' });
-                    alert("CACHE_PURGED");
-                }
-            }
-
-            searchInput.addEventListener('input', renderGrid);
-            eventSearch.addEventListener('input', renderAdvTable);
-
-            init();
-        </script>
-    </body>
+        init();
+    </script>
+</body>
 
 </html>
