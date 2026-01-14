@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOCHNESS // DEEP INSPECTION</title>
+    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="index.css">
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/3d-force-graph@1.73.1/dist/3d-force-graph.min.js"></script>
+    <style>
+        /* ... existing styles ... */
+
+        body {
+            overflow: hidden;
+            /* Full screen 3D */
+            background-color: #050505;
+        }
+
+        #holomap-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+        }
+
+        .hud-overlay {
+            position: absolute;
+            z-index: 10;
+            pointer-events: none;
+            /* Let clicks pass through to 3D */
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .hud-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .hud-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .hud-panel {
+            background: rgba(10, 10, 12, 0.85);
+            border: 1px solid #00f0ff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+            padding: 15px;
+            pointer-events: auto;
+            /* Enable interaction */
+            backdrop-filter: blur(5px);
+            margin: 10px;
+            width: 500px;
+            /* Static width */
+        }
+
+        .hud-panel h2 {
+            margin-top: 0;
+            color: #00f0ff;
+            text-transform: uppercase;
+            font-size: 1.2rem;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+            text-shadow: 0 0 5px #00f0ff;
+        }
+
+        .hud-panel .content {
+            font-family: 'Consolas', monospace;
+            color: #ccc;
+            font-size: 0.9rem;
+            /* Height controlled by inline styles now, but default to height */
+            height: 25vh;
+            overflow-y: auto;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #888;
+        }
+
+        .stat-value {
+            color: #fff;
+            font-weight: bold;
+        }
+
+        /* Navigation / Search */
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border: 1px solid #00f0ff;
+        }
+
+        input {
+            background: #111;
+            border: 1px solid #333;
+            color: #00f0ff;
+            padding: 5px 10px;
+            font-family: 'Courier New', monospace;
+        }
+
+        button {
+            background: #00f0ff;
+            color: #000;
+            border: none;
+            padding: 5px 15px;
+            cursor: pointer;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        button:hover {
+            background: #fff;
+            box-shadow: 0 0 10px #fff;
+        }
+
+        /* Scanlines Overlay */
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+            z-index: 999;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="scanlines"></div>
+
+    <div id="holomap-container"></div>
+
+    <div class="hud-overlay">
+        <div class="hud-top">
+            <div style="display: flex; flex-direction: column;">
+                <div class="hud-panel" style="width: 350px;">
+                    <h2>Target Acquisition [Process List]</h2>
+                    <div class="search-bar" style="border-bottom: 1px solid #333; margin-bottom: 10px;">
+                        <input type="text" id="proc-filter" placeholder="FILTER..." onkeyup="filterProcessList()"
+                            style="width:100%">
+                        <button onclick="fetchProcessList()">REFRESH</button>
+                        <!-- Hidden but kept for logic -->
+                        <input type="hidden" id="pid-input">
+                    </div>
+                    <div class="content" style="height: 20vh; overflow-y: auto; padding:0;">
+                        <table id="process-table"
+                            style="width: 100%; border-collapse: collapse; font-size: 0.8rem; table-layout: fixed;">
+                            <thead>
+                                <tr style="color: #00f0ff; border-bottom: 1px solid #00f0ff; text-align: left;">
+                                    <th style="padding: 5px; width: 15%;">PID</th>
+                                    <th style="padding: 5px; width: 35%;">NAME</th>
+                                    <th style="padding: 5px; width: 50%;">OWNER</th>
+                                </tr>
+                            </thead>
+                            <tbody id="process-tbody">
+                                <tr>
+                                    <td colspan="3" style="text-align:center; padding:10px;">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Navigation -->
+                    <div style="margin-top: 10px; text-align: right;">
+                        <button onclick="window.location.href='/'">RETURN</button>
+                    </div>
+                </div>
+
+                <div class="hud-panel" id="process-info" style="display:none;">
+                    <h2>Process Details</h2>
+                    <div class="content" id="details-data" style="height: 25vh; overflow-y: auto;">
+                        <div class="stat-row"><span class="stat-label">NAME:</span> <span class="stat-value"
+                                id="proc-name">--</span></div>
+                        <div class="stat-row"><span class="stat-label">PID:</span> <span class="stat-value"
+                                id="proc-pid">--</span></div>
+                        <div class="stat-row"><span class="stat-label">PARENT:</span> <span class="stat-value"
+                                id="proc-parent">--</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hud-panel" id="memory-panel" style="display:none;">
+                <h2>Mem Map [RWX]</h2>
+                <div class="content" id="memory-data" style="height: 15vh; overflow-y: auto;">
+                    Scanning...
+                </div>
+            </div>
+        </div>
+
+        <div class="hud-bottom">
+            <div class="hud-panel" id="resources-panel" style="display:none;">
+                <h2>Live Wire [Resources]</h2>
+                <div class="content" id="resources-data" style="height: 15vh; overflow-y: auto;">
+                    Scanning...
+                </div>
+            </div>
+
+            <div class="hud-panel" id="network-panel" style="display:none;">
+                <h2>Traffic Control [Net]</h2>
+                <div class="content" id="network-data" style="height: 15vh; overflow-y: auto;">
+                    Scanning...
+                </div>
+            </div>
+
+            <div class="hud-panel" id="threads-panel" style="display:none;">
+                <h2>Threads [State/TID]</h2>
+                <div class="content" id="threads-data" style="height: 15vh; overflow-y: auto;">
+                    Scanning...
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let graph = null;
+        let hoverNode = null;
+        const highlightNodes = new Set();
+        const highlightLinks = new Set();
+
+        function initGraph(data) {
+            const elem = document.getElementById('holomap-container');
+
+            // Clean up old graph if exists
+            elem.innerHTML = '';
+
+            // Transform hierarchical data to graph
+            const nodes = [];
+            const links = [];
+
+            function traverse(node, parentId = null) {
+                nodes.push({ id: node.pid, name: node.name, group: parentId ? 2 : 1 });
+                if (parentId) {
+                    links.push({ source: parentId, target: node.pid });
+                }
+                if (node.children) {
+                    node.children.forEach(child => traverse(child, node.pid));
+                }
+            }
+
+            if (data) traverse(data);
+
+            graph = ForceGraph3D()
+                (elem)
+                .graphData({ nodes, links })
+                .nodeLabel('name')
+                .nodeAutoColorBy('group')
+                // Hover Logic
+                .nodeColor(node => highlightNodes.has(node) ? node === hoverNode ? 'rgb(255,0,0,1)' : 'rgba(255,160,0,0.8)' : node.group === 1 ? '#00f0ff' : '#0055ff')
+                .linkWidth(link => highlightLinks.has(link) ? 4 : 1)
+                .linkDirectionalParticles(link => highlightLinks.has(link) ? 4 : 0)
+                .linkDirectionalParticleWidth(4)
+                .linkColor(() => '#00f0ff')
+                .linkOpacity(0.5)
+                .backgroundColor('#00000000') // Transparent
+                .onNodeHover(node => {
+                    // clear state
+                    highlightNodes.clear();
+                    highlightLinks.clear();
+                    if (node) {
+                        highlightNodes.add(node);
+                        // Find neighbors
+                        links.forEach(link => {
+                            if (link.source.id === node.id || link.target.id === node.id) {
+                                highlightLinks.add(link);
+                                highlightNodes.add(link.source);
+                                highlightNodes.add(link.target);
+                            }
+                        });
+                    }
+                    hoverNode = node || null;
+                    // Trigger update
+                    graph
+                        .nodeColor(graph.nodeColor())
+                        .linkWidth(graph.linkWidth())
+                        .linkDirectionalParticles(graph.linkDirectionalParticles());
+                })
+                .onNodeClick(node => {
+                    // Pivot without reloading graph structure, just data
+                    if (node.id !== parseInt(document.getElementById('pid-input').value)) {
+                        document.getElementById('pid-input').value = node.id;
+                        inspectPid(false); // Pivot: Load data, keep graph
+                    } else {
+                        inspectPid(false); // Clicked self: Refresh data
+                    }
+                });
+
+            // Add Futuristic Grid Room
+            // Floor
+            const gridHelper = new THREE.GridHelper(2000, 50, 0x00f0ff, 0x222222);
+            gridHelper.position.y = -100; // Lower floor
+            graph.scene().add(gridHelper);
+
+            // Add some ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040);
+            graph.scene().add(ambientLight);
+        }
+
+        async function inspectPid(refreshGraph = true) {
+            const pid = document.getElementById('pid-input').value;
+            if (!pid) return;
+
+            // Show panels
+            document.getElementById('process-info').style.display = 'block';
+            document.getElementById('resources-panel').style.display = 'block';
+            document.getElementById('network-panel').style.display = 'block';
+            document.getElementById('threads-panel').style.display = 'block';
+            document.getElementById('memory-panel').style.display = 'block';
+
+            // 0. Graph (Ancestry)
+            if (refreshGraph) {
+                try {
+                    const res = await fetch('/api/inspect', {
+                        method: 'POST',
+                        body: JSON.stringify({ Action: 'GetProcessAncestry', Pid: parseInt(pid) })
+                    });
+                    const data = await res.json();
+                    initGraph(data);
+                } catch (e) { console.error(e); }
+            }
+
+            // 1. Process Details (Forensics)
+            try {
+                const res = await fetch('/api/inspect', {
+                    method: 'POST',
+                    body: JSON.stringify({ Action: 'GetProcessDetails', Pid: parseInt(pid) })
+                });
+                const data = await res.json();
+
+                if (data.error) {
+                    document.getElementById('details-data').innerHTML = `<div style="color:red">${data.error}</div>`;
+                } else {
+                    let html = "";
+                    // Basic Info
+                    html += `<div class="stat-row"><span class="stat-label">NAME:</span> <span class="stat-value" id="proc-name" style="color:#00f0ff">${data.name}</span></div>`;
+                    html += `<div class="stat-row"><span class="stat-label">PID:</span> <span class="stat-value" id="proc-pid">${data.pid}</span></div>`;
+                    html += `<div class="stat-row"><span class="stat-label">USER:</span> <span class="stat-value">${data.user}</span></div>`;
+
+                    // Forensics
+                    html += `<div style="margin-top:5px; border-top:1px solid #333; padding-top:5px;"></div>`;
+                    html += `<div style="color:#888; font-size:0.8em; margin-bottom:2px;">IMAGE PATH</div>`;
+                    html += `<div style="color:#fff; word-break:break-all; font-size:0.85em; margin-bottom:5px;">${data.path}</div>`;
+
+                    html += `<div style="color:#888; font-size:0.8em; margin-bottom:2px;">COMMAND LINE</div>`;
+                    html += `<div style="color:#fff; word-break:break-all; font-size:0.85em; margin-bottom:5px; max-height:100px; overflow-y:auto;">${data.commandLine || "<span style='color:#555'>N/A (Access Denied/System)</span>"}</div>`;
+
+                    html += `<div class="stat-row"><span class="stat-label">START TIME:</span> <span class="stat-value" style="font-size:0.85em">${data.startTime}</span></div>`;
+
+                    let intColor = '#fff';
+                    if (data.integrity === 'High' || data.integrity === 'System') intColor = '#ff0000';
+                    if (data.integrity === 'Medium') intColor = '#00ff00';
+                    html += `<div class="stat-row"><span class="stat-label">INTEGRITY:</span> <span class="stat-value" style="color:${intColor}">${data.integrity}</span></div>`;
+
+                    // Security
+                    html += `<div style="margin-top:5px; display:flex; gap:10px;">`;
+                    html += `<span>DEP: <span style="color:${data.dep ? '#00ff00' : '#ff0000'}">${data.dep ? "ON" : "OFF"}</span></span>`;
+                    html += `<span>ASLR: <span style="color:${data.aslr ? '#00ff00' : '#ff0000'}">${data.aslr ? "ON" : "OFF"}</span></span>`;
+                    html += `</div>`;
+
+                    if (data.description) {
+                        html += `<div style="margin-top:5px; color:#aaa; font-style:italic; font-size:0.8em;">${data.description}</div>`;
+                    }
+
+                    document.getElementById('details-data').innerHTML = html;
+                }
+            } catch (e) {
+                console.error(e);
+                document.getElementById('details-data').innerHTML = `<div style="color:red">Error: ${e.message}</div>`;
+            }
+
+            // 2. Resources
+            try {
+                const res = await fetch('/api/inspect', {
+                    method: 'POST',
+                    body: JSON.stringify({ Action: 'GetProcessResources', Pid: parseInt(pid) })
+                });
+                const data = await res.json();
+
+                let html = `<div class="stat-row"><span class="stat-label">HANDLES:</span> <span class="stat-value">${data.handleCount}</span></div>`;
+                html += `<div><strong>MODULES:</strong></div>`;
+                html += `<div style="display: grid; grid-template-columns: 1fr 2fr 0.8fr; gap: 8px; font-size: 0.85em; border-bottom: 1px solid #333; margin-bottom: 5px; padding-bottom: 2px;">
+                            <div style="color: #888;">NAME</div>
+                            <div style="color: #888;">PATH</div>
+                            <div style="color: #888; text-align:right;">INTEGRITY</div>
+                         </div>`;
+
+                data.modules.forEach(m => {
+                    const name = m.name.split('\\').pop();
+                    const path = m.name;
+                    const integrity = m.integrity !== undefined ? m.integrity : true; // default true if missing
+                    const reason = m.reason || "";
+
+                    let status = '<span style="color:#00ff00">OK</span>';
+                    if (!integrity) {
+                        status = `<span style="color:#ff0000; cursor:help;" title="${reason}">FAIL</span>`;
+                    }
+
+                    html += `<div style="display: grid; grid-template-columns: 1fr 2fr 0.8fr; gap: 8px; font-size: 0.85em; margin-bottom: 2px; border-bottom: 1px dotted #222;">
+                                <div style="color: #00f0ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${name}">${name}</div>
+                                <div style="color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${path}">${path}</div>
+                                <div style="text-align:right;">${status}</div>
+                             </div>`;
+                });
+                document.getElementById('resources-data').innerHTML = html;
+            } catch (e) { console.error(e); }
+
+            // 3. Network
+            try {
+                const res = await fetch('/api/inspect', {
+                    method: 'POST',
+                    body: JSON.stringify({ Action: 'GetNetworkConnections', Pid: parseInt(pid) })
+                });
+                const data = await res.json();
+
+                let html = "";
+                if (data.length === 0) html = "No Active Connections";
+                data.forEach(c => {
+                    html += `<div class="stat-row"><span class="stat-label">${c.proto}:</span> <span class="stat-value">${c.localAddr}:${c.localPort} -> ${c.remoteAddr}:${c.remotePort}</span></div>`;
+                });
+                document.getElementById('network-data').innerHTML = html;
+            } catch (e) { console.error(e); }
+
+            // 4. Threads
+            try {
+                const res = await fetch('/api/inspect', {
+                    method: 'POST',
+                    body: JSON.stringify({ Action: 'GetProcessThreads', Pid: parseInt(pid) })
+                });
+                const data = await res.json();
+                console.log("Thread Data:", data);
+                if (data.length > 0 && !data[0].state) {
+                    console.warn("Agent is outdated! Missing 'state' field.");
+                    document.getElementById('threads-data').innerHTML = '<div style="color:red; padding:10px;">AGENT OUTDATED. REBUILD REQUIRED.</div>';
+                    return;
+                }
+
+                let html = `<div class="stat-row"><span class="stat-label">THREAD COUNT:</span> <span class="stat-value">${data.length}</span></div>`;
+                data.forEach(t => {
+                    const addr = t.start_addr || "Update Agent";
+                    const mod = t.module || "N/A";
+                    const state = t.state || "N/A";
+                    const isSuspicious = t.is_suspicious || false;
+
+                    const color = isSuspicious ? 'red' : '#00f0ff';
+                    const border = isSuspicious ? '1px solid red' : '1px dotted #333';
+
+                    html += `<div style="display: grid; grid-template-columns: 0.8fr 1.5fr 1.2fr 1.5fr; gap: 5px; font-size: 0.8em; border-bottom: ${border}; padding: 2px 0;">
+                                <span style="color: #aaa;">${t.tid}</span>
+                                <span style="color: #fff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${state}">${state}</span>
+                                <span style="color: ${color}; overflow:hidden; text-overflow:ellipsis;" title="${addr}">${addr}</span>
+                                <span style="color: ${isSuspicious ? 'white' : '#888'}; text-align:right; overflow:hidden; text-overflow:ellipsis;" title="${mod}">${mod}</span>
+                            </div>`;
+                });
+                document.getElementById('threads-data').innerHTML = html;
+            } catch (e) { console.error(e); }
+
+            // 5. Memory
+            try {
+                const res = await fetch('/api/inspect', {
+                    method: 'POST',
+                    body: JSON.stringify({ Action: 'ScanProcessMemory', Pid: parseInt(pid) })
+                });
+                const data = await res.json();
+
+                let html = `<div class="stat-row"><span class="stat-label">RWX REGIONS:</span> <span class="stat-value">${data.length}</span></div>`;
+                data.forEach(r => {
+                    let ent = r.entropy || 0;
+                    let entColor = '#00ff00';
+                    let entWidth = (ent / 8.0) * 100;
+                    if (ent > 6.0) entColor = '#ffff00';
+                    if (ent > 7.2) entColor = '#ff0000';
+
+                    let prot = "RWX";
+                    if (r.protect === 0x20) prot = "RX"; // PAGE_EXECUTE_READ
+                    if (r.protect === 0x80) prot = "WC"; // PAGE_EXECUTE_WRITECOPY
+
+                    let type = "IMG";
+                    if (r.type === 0x20000) type = "PRI"; // MEM_PRIVATE
+                    else if (r.type === 0x40000) type = "MAP"; // MEM_MAPPED
+
+                    if (type === "PRI" && ent > 7.0 && (prot === "RWX" || prot === "RX")) {
+                        entColor = '#ff3333'; // High alert for private executable high entropy
+                    }
+
+                    html += `<div style="border: 1px solid #333; margin-bottom: 5px; padding: 5px; background: rgba(255,255,255,0.05);">
+                                <div style="display:flex; justify-content:space-between; font-size:0.8em; margin-bottom:3px;">
+                                    <span style="color:#00f0ff">0x${r.base.toString(16).toUpperCase()}</span>
+                                    <span style="color:#aaa">${(r.size / 1024).toFixed(1)} KB</span>
+                                    <span style="color:#fff">${prot} [${type}]</span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:5px;">
+                                   <div style="font-size:0.7em; color:#888; width: 50px;">ENT: ${ent.toFixed(2)}</div>
+                                   <div style="flex-grow:1; background:#222; height: 6px; position:relative;">
+                                      <div style="position:absolute; top:0; left:0; height:100%; width:${entWidth}%; background:${entColor}; box-shadow: 0 0 5px ${entColor}; transition: width 0.5s;"></div>
+                                   </div>
+                                </div>
+                             </div>`;
+                });
+                if (data.length === 0) html += "<div>No suspicious executable regions found.</div>";
+                document.getElementById('memory-data').innerHTML = html;
+            } catch (e) {
+                console.error(e);
+                document.getElementById('memory-data').innerHTML = `<div style="color:red">Error: ${e.message}</div>`;
+            }
+        }
+
+        // Process List Logic
+        let processList = [];
+
+        async function fetchProcessList() {
+            const tbody = document.getElementById('process-tbody');
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:10px;">Scanning...</td></tr>';
+
+            try {
+                const res = await fetch('/api/inspect', {
+                    method: 'POST',
+                    body: JSON.stringify({ Action: 'ListProcesses' })
+                });
+                const data = await res.json();
+                processList = data; // Store for filtering
+                renderProcessList(data);
+            } catch (e) {
+                console.error(e);
+                tbody.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">Error: ${e.message}</td></tr>`;
+            }
+        }
+
+        function renderProcessList(list) {
+            const tbody = document.getElementById('process-tbody');
+            if (!list || list.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No processes found.</td></tr>';
+                return;
+            }
+
+            let html = "";
+            list.forEach(p => {
+                html += `<tr onclick="selectProcess(${p.pid})" style="cursor: pointer; border-bottom: 1px solid #222;" onmouseover="this.style.background='#111'" onmouseout="this.style.background='transparent'">
+                            <td style="padding: 4px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.pid}</td>
+                            <td style="padding: 4px; color: #00f0ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.name}">${p.name}</td>
+                            <td style="padding: 4px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${p.owner}">${p.owner}</td>
+                         </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function filterProcessList() {
+            const term = document.getElementById('proc-filter').value.toLowerCase();
+            const filtered = processList.filter(p =>
+                p.name.toLowerCase().includes(term) ||
+                p.pid.toString().includes(term) ||
+                p.owner.toLowerCase().includes(term)
+            );
+            renderProcessList(filtered);
+        }
+
+        function selectProcess(pid) {
+            const current = document.getElementById('pid-input').value;
+            // If already selected, refresh data but keep graph.
+            // If new, full refresh.
+            if (current == pid) {
+                inspectPid(false);
+            } else {
+                document.getElementById('pid-input').value = pid;
+                inspectPid(true);
+            }
+        }
+
+        // Auto-init
+        window.onload = () => {
+            // Check if 3d-force-graph loaded
+            if (typeof ForceGraph3D === 'undefined') {
+                // Error handling...
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            const urlPid = params.get('pid');
+
+            // Always fetch list
+            fetchProcessList();
+
+            if (urlPid) {
+                document.getElementById('pid-input').value = urlPid;
+                inspectPid();
+            }
+        };
+    </script>
+</body>
+
+</html>

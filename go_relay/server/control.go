@@ -394,6 +394,43 @@ func (cs *ControlServer) HandleGroupToggle(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(200)
 }
 
+// POST /api/inspect
+func (cs *ControlServer) HandleInspect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+
+	// Read raw body to pass through to C++
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Bad Request", 400)
+		return
+	}
+	defer r.Body.Close()
+
+	// Parse to validate/extract if needed, but for now just pass through the raw JSON object
+	// The C++ agent expects {"Action":"...", "Pid":...}
+	// Verify it's valid JSON at least
+	var js map[string]interface{}
+	if err := json.Unmarshal(body, &js); err != nil {
+		http.Error(w, "Invalid JSON", 400)
+		return
+	}
+
+	// Pass to sendCommand which marshals it again.
+	// Optimize: sendCommand takes interface{}, so we pass the map.
+	resp, err := cs.sendCommand(js)
+	if err != nil {
+		log.Printf("Inspect Error: %v", err)
+		http.Error(w, err.Error(), 503)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
 // HydrateAllMetadata fetches metadata for all known providers from the C++ agent.
 // This should be run in a background goroutine.
 func (cs *ControlServer) HydrateAllMetadata() {

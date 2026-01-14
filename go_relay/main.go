@@ -50,6 +50,7 @@ func main() {
 	http.HandleFunc("/api/providers", control.HandleListProviders)
 	http.HandleFunc("/api/groups", control.HandleGroups)
 	http.HandleFunc("/api/groups/toggle", control.HandleGroupToggle)
+	http.HandleFunc("/api/inspect", control.HandleInspect)
 
 	// Dynamic Handler for /api/providers/{guid}/...
 	http.HandleFunc("/api/providers/", func(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +80,12 @@ func main() {
 	}
 
 	fs := http.FileServer(http.Dir(uiDir))
-	http.Handle("/ui/", http.StripPrefix("/ui/", fs))
+	http.Handle("/ui/", http.StripPrefix("/ui/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".css") {
+			w.Header().Set("Content-Type", "text/css")
+		}
+		fs.ServeHTTP(w, r)
+	})))
 
 	log.Println("Starting HTTP API on :8087")
 	log.Fatal(http.ListenAndServe(":8087", nil))
