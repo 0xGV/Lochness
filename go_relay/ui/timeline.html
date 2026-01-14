@@ -5,17 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lochness - Cyberdeck Timeline</title>
+    <link rel="stylesheet" href="css/themes.css">
+    <script src="css/themes.js"></script>
     <style>
         :root {
-            --bg-color: #050505;
-            --grid-color: #1a1a1a;
-            --accent-cyan: #00f3ff;
-            --accent-magenta: #ff00ff;
-            --accent-green: #39ff14;
-            --text-main: #e0e0e0;
-            --panel-bg: rgba(10, 10, 10, 0.7);
-            --modal-bg: rgba(5, 5, 5, 0.75);
-            --border-glow: 0 0 15px rgba(0, 243, 255, 0.4);
+            /* Variables moved to css/themes.css */
         }
 
         body,
@@ -742,6 +736,10 @@
             <a class="nav-item" href="/ui/inspection.html" title="Inspect">
                 <div class="nav-icon">◎</div>
             </a>
+            <div class="nav-item" onclick="toggleTheme()" title="Toggle Theme"
+                style="margin-top: auto; margin-bottom: 20px;">
+                <div class="nav-icon">◑</div>
+            </div>
         </nav>
 
         <div style="display:flex; flex-direction:column; flex:1; min-width:0; position:relative;">

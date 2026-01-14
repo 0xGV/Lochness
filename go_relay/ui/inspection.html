@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LOCHNESS // INSPECTOR</title>
     <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="css/themes.css">
+    <script src="css/themes.js"></script>
     <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
     <script src="https://unpkg.com/3d-force-graph@1.73.1/dist/3d-force-graph.min.js"></script>
     <style>
@@ -317,6 +319,10 @@
         <a class="nav-item active" href="/ui/inspection.html" title="Inspect">
             <div class="nav-icon">◎</div>
         </a>
+        <div class="nav-item" onclick="toggleTheme()" title="Toggle Theme"
+            style="margin-top: auto; margin-bottom: 20px;">
+            <div class="nav-icon">◑</div>
+        </div>
     </nav>
     <!-- LEFT RAIL -->
     <div id="nav-rail">

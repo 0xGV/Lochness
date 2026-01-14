@@ -20,6 +20,7 @@ type ControlServer struct {
 	GroupConfigPath string
 	mu              sync.Mutex
 	Enabled         map[string]bool
+	pipeMutex       sync.Mutex
 }
 
 func NewControlServer(storage *Storage, resolver *ProviderResolver, pipePath string, groupConfigPath string) *ControlServer {
@@ -44,6 +45,9 @@ type ProviderConfig struct {
 // responseDst can be a pointer to a struct/slice to unmarshal JSON into, or nil to just return raw string if needed,
 // but for now we'll assume we return raw bytes so the caller can decide.
 func (cs *ControlServer) sendCommand(req interface{}) ([]byte, error) {
+	cs.pipeMutex.Lock()
+	defer cs.pipeMutex.Unlock()
+
 	f, err := os.OpenFile(cs.PipePath, os.O_RDWR, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open control pipe: %v", err)
