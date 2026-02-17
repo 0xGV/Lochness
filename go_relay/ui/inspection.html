@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LOCHNESS // INSPECTOR</title>
+    <link rel="stylesheet" href="index.css">
+    <link rel="stylesheet" href="css/themes.css">
+    <script src="css/themes.js"></script>
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/3d-force-graph@1.73.1/dist/3d-force-graph.min.js"></script>
+    <style>
+        /* Cyber-Stream Custom Styles */
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            display: flex;
+            height: 100vh;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* --- LEFT RAIL (NAVIGATION) --- */
+        #nav-rail {
+            width: 300px;
+            background: rgba(5, 5, 8, 1);
+            border-right: 1px solid #00f0ff;
+            display: flex;
+            flex-direction: column;
+            z-index: 20;
+            box-shadow: 2px 0 15px rgba(0, 240, 255, 0.1);
+        }
+
+        .rail-header {
+            padding: 15px;
+            background: rgba(0, 20, 25, 0.5);
+            border-bottom: 1px solid #333;
+        }
+
+        .rail-header h2 {
+            margin: 0;
+            font-size: 1rem;
+            color: #00f0ff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .search-area {
+            padding: 10px;
+            border-bottom: 1px solid #222;
+        }
+
+        #rail-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+
+        #process-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            table-layout: fixed;
+        }
+
+        #process-table th {
+            text-align: left;
+            padding: 8px;
+            position: sticky;
+            top: 0;
+            background: #000;
+            color: #888;
+            border-bottom: 1px solid #333;
+        }
+
+        #process-table td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #111;
+            cursor: pointer;
+        }
+
+        #process-table tr:hover {
+            background: rgba(0, 240, 255, 0.1);
+        }
+
+        #process-table tr.active {
+            background: rgba(0, 240, 255, 0.2);
+            border-left: 2px solid #00f0ff;
+        }
+
+        /* --- MAIN STAGE (STREAM) --- */
+        #main-stage {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: row;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 20px;
+            gap: 20px;
+            background-image:
+                linear-gradient(rgba(18, 16, 16, 0.95), rgba(0, 0, 0, 0.95)),
+                linear-gradient(0deg, transparent 24%, rgba(0, 255, 255, .05) 25%, rgba(0, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, .05) 75%, rgba(0, 255, 255, .05) 76%, transparent 77%, transparent),
+                linear-gradient(90deg, transparent 24%, rgba(0, 255, 255, .05) 25%, rgba(0, 255, 255, .05) 26%, transparent 27%, transparent 74%, rgba(0, 255, 255, .05) 75%, rgba(0, 255, 255, .05) 76%, transparent 77%, transparent);
+            background-size: 100% 100%, 50px 50px, 50px 50px;
+        }
+
+        .stream-panel {
+            flex-shrink: 0;
+            background: rgba(10, 10, 12, 0.6);
+            border: 1px solid #333;
+            border-top: 2px solid #00f0ff;
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+        }
+
+        .stream-panel header {
+            padding: 10px 15px;
+            background: rgba(0, 240, 255, 0.05);
+            border-bottom: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stream-panel header h3 {
+            margin: 0;
+            color: #00f0ff;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+        }
+
+        .stream-content {
+            padding: 15px;
+            overflow-y: auto;
+            flex-grow: 1;
+            color: #ddd;
+            font-size: 0.9rem;
+        }
+
+        /* ZONE 1: IDENTITY */
+        #zone-identity {
+            width: 400px;
+        }
+
+        /* ZONE 2: VISUALIZATION */
+        #zone-visual {
+            width: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #graph-wrapper {
+            flex-grow: 1;
+            background: #000;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* ZONE 3: DEEP DIVE */
+        #zone-deep {
+            width: 600px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* TABS */
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #333;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            color: #666;
+            background: rgba(0, 0, 0, 0.3);
+            border-right: 1px solid #333;
+            transition: color 0.2s, background 0.2s;
+        }
+
+        .tab:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .tab.active {
+            color: #00f0ff;
+            background: rgba(0, 240, 255, 0.1);
+            border-bottom: 2px solid #00f0ff;
+        }
+
+        .tab-content {
+            display: none;
+            padding: 0;
+            height: 100%;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Specific override for flex containers */
+        #tab-str.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* UTILS */
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            border-bottom: 1px dotted #222;
+            padding-bottom: 2px;
+        }
+
+        .stat-label {
+            color: #888;
+            font-size: 0.8rem;
+        }
+
+        .stat-value {
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .cyber-bar {
+            height: 4px;
+            background: #222;
+            margin-top: 2px;
+            position: relative;
+        }
+
+        .cyber-fill {
+            height: 100%;
+            background: #00f0ff;
+            box-shadow: 0 0 5px #00f0ff;
+            width: 0%;
+            transition: width 0.5s;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #050505;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #00f0ff;
+        }
+
+        /* Sidebar Navigation */
+        #global-nav {
+            width: 60px;
+            background: #050505;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+            gap: 15px;
+            flex-shrink: 0;
+            z-index: 10000;
+        }
+
+        .nav-item {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            color: #00f0ff;
+            border-color: #00f0ff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+            background: rgba(0, 240, 255, 0.05);
+        }
+
+        .nav-icon {
+            font-size: 1.4rem;
+            line-height: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- SIDEBAR NAV -->
+    <nav id="global-nav">
+        <a class="nav-item" href="/ui/index.html" title="Config">
+            <div class="nav-icon">⚙</div>
+        </a>
+        <a class="nav-item" href="/ui/timeline.html" title="Timeline">
+            <div class="nav-icon">∿</div>
+        </a>
+        <a class="nav-item" href="/ui/events.html" title="Table">
+            <div class="nav-icon">≣</div>
+        </a>
+        <a class="nav-item active" href="/ui/inspection.html" title="Inspect">
+            <div class="nav-icon">◎</div>
+        </a>
+        <div class="nav-item" onclick="toggleTheme()" title="Toggle Theme"
+            style="margin-top: auto; margin-bottom: 20px;">
+            <div class="nav-icon">◑</div>
+        </div>
+    </nav>
+    <!-- LEFT RAIL -->
+    <div id="nav-rail">
+        <div class="rail-header">
+            <h2>Target List</h2>
+        </div>
+        <div class="search-area">
+            <input type="text" id="proc-filter" placeholder="SEARCH PID/NAME..." onkeyup="filterProcessList()"
+                style="width: 100%; background: #111; border: 1px solid #333; color: #00f0ff; padding: 5px;">
+            <input type="hidden" id="pid-input">
+        </div>
+        <div id="rail-list">
+            <table id="process-table">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">PID</th>
+                        <th>NAME</th>
+                        <th style="width: 80px;">USER</th>
+                    </tr>
+                </thead>
+                <tbody id="process-tbody">
+                    <tr>
+                        <td colspan="3" style="text-align: center; color: #666; padding: 20px;">Scanning...</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div style="padding: 10px; border-top: 1px solid #333; text-align: center;">
+                <button onclick="fetchProcessList()"
+                    style="background:transparent; border:1px solid #00f0ff; color:#00f0ff; padding:5px 15px; cursor:pointer;">REFRESH</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN STAGE -->
+    <div id="main-stage">
+
+        <!-- ZONE 1: IDENTITY -->
+        <div class="stream-panel" id="zone-identity">
+            <header>
+                <h3>Identity & Forensics</h3> <span style="font-size:0.7em; color:#666;">ZONE I</span>
+            </header>
+            <div class="stream-content" id="details-data">
+                <div style="text-align:center; padding: 50px; color: #444;">Select a Target</div>
+            </div>
+        </div>
+
+        <!-- ZONE 2: VISUALIZATION -->
+        <div class="stream-panel" id="zone-visual">
+            <header>
+                <h3>Ancestry Graph</h3> <span style="font-size:0.7em; color:#666;">ZONE II</span>
+            </header>
+            <div id="graph-wrapper">
+                <div id="holomap-container" style="width: 100%; height: 100%;"></div>
+            </div>
+            <div style="padding: 10px; border-top: 1px solid #333; font-size: 0.8rem; color: #666;">
+                INTERACTION: <span style="color:#aaa">Left Click</span> to Select &middot; <span
+                    style="color:#aaa">Right Click</span> to Pan &middot; <span style="color:#aaa">Scroll</span> to Zoom
+            </div>
+        </div>
+
+        <!-- ZONE 3: DEEP DIVE -->
+        <div class="stream-panel" id="zone-deep">
+            <header>
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('res')">RESOURCES</div>
+                    <div class="tab" onclick="switchTab('net')">NETWORK</div>
+                    <div class="tab" onclick="switchTab('thd')">THREADS</div>
+                    <div class="tab" onclick="switchTab('mem')">MEMORY</div>
+                    <div class="tab" onclick="switchTab('str')">STRINGS</div>
+                </div>
+                <span style="font-size:0.7em; color:#666;">ZONE III</span>
+            </header>
+
+            <div class="stream-content">
+                <!-- Resources Tab -->
+                <div id="tab-res" class="tab-content active">Waiting for data...</div>
+                <!-- Network Tab -->
+                <div id="tab-net" class="tab-content">Waiting for data...</div>
+                <!-- Threads Tab -->
+                <div id="tab-thd" class="tab-content">Waiting for data...</div>
+                <!-- Memory Tab -->
+                <div id="tab-mem" class="tab-content">Waiting for data...</div>
+                <!-- Strings Tab -->
+                <div id="tab-str" class="tab-content" style="height:100%;">
+                    <div
+                        style="padding:10px; color:#666; font-size:0.8em; border-bottom:1px solid #333; flex-shrink:0;">
+                        Scanning committed memory for ASCII strings (>4 chars).
+                    </div>
+                    <div id="str-list"
+                        style="flex-grow:1; overflow-y:auto; font-family:'Courier New', monospace; font-size:0.8rem;">
+                        Waiting for data...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- GLOBAL STATE ---
+        let graph = null;
+        let processList = [];
+
+        // --- TABS LOGIC ---
+        function switchTab(tabId) {
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            // Hide all contents
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            // Activate selected
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabId).classList.add('active');
+        }
+
+        // --- GRAPH LOGIC ---
+        function initGraph(data) {
+            const container = document.getElementById('holomap-container');
+            container.innerHTML = ''; // Clear
+
+            const nodes = [];
+            const links = [];
+
+            function traverse(node, parentId = null) {
+                nodes.push({ id: node.pid, name: node.name, group: parentId ? 2 : 1 });
+                if (parentId) links.push({ source: parentId, target: node.pid });
+                if (node.children) node.children.forEach(child => traverse(child, node.pid));
+            }
+            if (data) traverse(data);
+
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            graph = ForceGraph3D()
+                (container)
+                .width(width)
+                .height(height)
+                .graphData({ nodes, links })
+                .nodeLabel('name')
+                .nodeAutoColorBy('group')
+                .nodeColor(node => node.id === parseInt(document.getElementById('pid-input').value) ? '#ff0000' : (node.group === 1 ? '#00f0ff' : '#0055ff'))
+                .linkColor(() => '#333')
+                .backgroundColor('#000000') // Solid black for container
+                .onNodeClick(node => {
+                    selectProcess(node.id);
+                });
+
+            // Adjust camera to fit
+            graph.cameraPosition({ z: 200 });
+        }
+
+        // --- DATA FETCHING ---
+        async function inspectPid(refreshGraph = true) {
+            const pid = parseInt(document.getElementById('pid-input').value);
+            if (!pid) return;
+
+            // Highlight active row in list
+            document.querySelectorAll('#process-tbody tr').forEach(r => r.classList.remove('active'));
+            const row = document.getElementById(`row-${pid}`);
+            if (row) row.classList.add('active');
+
+            // 1. IDENTITY (Zone 1)
+            try {
+                const res = await fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'GetProcessDetails', Pid: pid }) });
+                const data = await res.json();
+
+                if (data.error) {
+                    document.getElementById('details-data').innerHTML = `<div style="color:red; padding:20px;">${data.error}</div>`;
+                } else {
+                    console.log("Identity Data:", data);
+                    let html = `
+                        <div class="stat-row"><span class="stat-label">NAME</span> <span class="stat-value" style="color:#00f0ff; font-size:1.1em;">${data.name}</span></div>
+                        <div class="stat-row"><span class="stat-label">PID</span> <span class="stat-value">${data.pid}</span></div>
+                        <div class="stat-row"><span class="stat-label">USER</span> <span class="stat-value">${data.user}</span></div>
+                        <div style="margin: 15px 0; border: 1px solid #333; padding: 10px; background: rgba(0,0,0,0.3);">
+                            <div class="stat-label" style="margin-bottom:5px;">IMAGE PATH</div>
+                            <div style="word-break: break-all; color: #ccc;">${data.path}</div>
+                        </div>
+                        <div style="margin: 15px 0; border: 1px solid #333; padding: 10px; background: rgba(0,0,0,0.3);">
+                            <div class="stat-label" style="margin-bottom:5px;">COMMAND LINE</div>
+                            <div style="word-break: break-all; color: #ccc; max-height:80px; overflow-y:auto;">${data.commandLine || 'N/A'}</div>
+                        </div>
+                        <div class="stat-row"><span class="stat-label">INTEGRITY</span> <span class="stat-value" style="color:${data.integrity === 'High' || data.integrity === 'System' ? '#ff3333' : '#00ff00'}">${data.integrity}</span></div>
+                        <div class="stat-row"><span class="stat-label">START TIME</span> <span class="stat-value">${data.startTime}</span></div>
+                        <div style="margin-top:10px; display:flex; gap:10px;">
+                             <span style="border:1px solid #333; padding:2px 8px; font-size:0.8em; color:${data.dep ? '#00ff00' : '#666'}">DEP</span>
+                             <span style="border:1px solid #333; padding:2px 8px; font-size:0.8em; color:${data.aslr ? '#00ff00' : '#666'}">ASLR</span>
+                        </div>
+                    `;
+                    document.getElementById('details-data').innerHTML = html;
+                }
+            } catch (e) {
+                console.error("Identity Error:", e);
+                document.getElementById('details-data').innerHTML = `<div style="color:red; padding:20px;">Fetch/Parse Error: ${e.message}</div>`;
+            }
+
+            // 2. GRAPH (Zone 2)
+            if (refreshGraph) {
+                try {
+                    const res = await fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'GetProcessAncestry', Pid: pid }) });
+                    const data = await res.json();
+                    initGraph(data);
+                } catch (e) { console.error(e); }
+            }
+
+            // 3. DEEP DIVE (Zone 3)
+            // Resources
+            fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'GetProcessResources', Pid: pid }) })
+                .then(r => r.json())
+                .then(data => {
+                    let html = `<div style="padding:10px 0; border-bottom:1px solid #333; margin-bottom:10px;">HANDLES: <span style="color:#fff">${data.handleCount}</span></div>`;
+                    data.modules.forEach(m => {
+                        let integrityColor = m.integrity ? '#00ff00' : '#ff3333';
+                        let integrityText = m.integrity ? 'Verified' : 'Unsigned';
+                        html += `<div style="display:grid; grid-template-columns: 20px 150px 1fr; gap:5px; padding:4px 0; border-bottom:1px dotted #222; align-items:center;">
+                                    <div style="width:8px; height:8px; border-radius:50%; background:${integrityColor};" title="${integrityText}"></div>
+                                    <span style="color:#00f0ff; overflow:hidden; text-overflow:ellipsis;" title="${m.name}">${m.name.split('\\').pop()}</span>
+                                    <span style="color:#666; font-size:0.8em; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">${m.name}</span>
+                                  </div>`;
+                    });
+                    document.getElementById('tab-res').innerHTML = html;
+                }).catch(e => document.getElementById('tab-res').innerText = "Error loading resources");
+
+            // Network
+            fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'GetNetworkConnections', Pid: pid }) })
+                .then(r => {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.length === 0) { document.getElementById('tab-net').innerHTML = "<div style='padding:20px; color:#666; text-align:center'>No Network Activity</div>"; return; }
+                    let html = "";
+                    data.forEach(c => {
+                        html += `<div style="display:grid; grid-template-columns: 50px 1fr 20px 1fr; gap:10px; padding:5px 0; border-bottom:1px solid #222;">
+                                    <span style="color:#aaa">${c.proto}</span>
+                                    <span style="color:#fff; text-align:right;">${c.localAddr}:${c.localPort}</span>
+                                    <span style="color:#444; text-align:center;">-></span>
+                                    <span style="color:#00f0ff">${c.remoteAddr}:${c.remotePort}</span>
+                                 </div>`;
+                    });
+                    document.getElementById('tab-net').innerHTML = html;
+                }).catch(e => {
+                    console.error("Network Error:", e);
+                    document.getElementById('tab-net').innerHTML = `<div style="color:red; padding:10px;">Error: ${e.message}</div>`;
+                });
+
+            // Threads
+            fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'GetProcessThreads', Pid: pid }) })
+                .then(r => {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    console.log("Threads Data:", data);
+                    let html = `<div style="padding-bottom:10px;">Count: ${data.length}</div>`;
+                    // Header for threads
+                    html += `<div style="display:grid; grid-template-columns: 60px 100px 1fr 1fr; gap:10px; padding:4px 0; border-bottom:1px solid #333; color:#888; font-size:0.8em; margin-bottom:5px;">
+                                <span>TID</span><span>STATE</span><span>START ADDR</span><span>MODULE</span>
+                             </div>`;
+
+                    data.forEach(t => {
+                        html += `<div style="display:grid; grid-template-columns: 60px 100px 1fr 1fr; gap:10px; padding:4px 0; border-bottom:1px dotted #333;">
+                                    <span style="color:#666">${t.tid}</span>
+                                    <span style="color:#fff">${t.state || 'N/A'}</span>
+                                    <span style="color:${t.is_suspicious ? 'red' : '#00f0ff'}; overflow:hidden; text-overflow:ellipsis;">${t.start_addr}</span>
+                                    <span style="color:#888; overflow:hidden; text-overflow:ellipsis;" title="${t.module}">${t.module || 'N/A'}</span>
+                                 </div>`;
+                    });
+                    document.getElementById('tab-thd').innerHTML = html;
+                }).catch(e => {
+                    console.error("Threads Error:", e);
+                    document.getElementById('tab-thd').innerHTML = `<div style="color:red; padding:10px;">Error: ${e.message}</div>`;
+                });
+
+            // Memory
+            fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'ScanProcessMemory', Pid: pid }) })
+                .then(r => {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    console.log("Memory Data:", data);
+                    let html = `<div style="padding-bottom:10px;">Executable Regions: ${data.length}</div>`;
+                    data.forEach(r => {
+                        let ent = r.entropy || 0;
+                        let color = '#00ff00';
+                        if (ent > 6.5) color = '#ffff00';
+                        if (ent > 7.2) color = '#ff0000';
+
+                        html += `<div style="background:rgba(255,255,255,0.05); padding:8px; margin-bottom:5px; border-left:3px solid ${color};">
+                                    <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                                        <span style="color:#00f0ff">0x${r.base.toString(16).toUpperCase()}</span>
+                                        <span style="color:#aaa; font-size:0.9em;">[${getProtectionString(r.protect)}]</span>
+                                        <span style="color:#fff">${(r.size / 1024).toFixed(1)} KB</span>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:10px;">
+                                        <span style="font-size:0.8em; color:#888;">Entropy: ${ent.toFixed(2)}</span>
+                                        <div style="flex-grow:1; height:4px; background:#222;"><div style="height:100%; width:${(ent / 8) * 100}%; background:${color};"></div></div>
+                                    </div>
+                                  </div>`;
+                    });
+                    document.getElementById('tab-mem').innerHTML = html;
+                }).catch(e => {
+                    console.error("Memory Error:", e);
+                    document.getElementById('tab-mem').innerHTML = `<div style="color:red; padding:10px;">Error: ${e.message}</div>`;
+                });
+
+            // Strings
+            fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'GetProcessStrings', Pid: pid }) })
+                .then(r => {
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    console.log("Strings Data:", data);
+                    let count = data.count || (data.strings ? data.strings.length : 0);
+                    let html = `<div style="padding:5px; color:#888;">Found ${count} Strings (Capped)</div>`;
+
+                    if (data.strings && data.strings.length > 0) {
+                        data.strings.forEach(s => {
+                            let safeStr = s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                            html += `<div style="padding:2px 5px; border-bottom:1px dotted #222; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#00f0ff;">
+                                        ${safeStr}
+                                     </div>`;
+                        });
+                    } else {
+                        html += `<div style="padding:10px; color:#666;">No strings found or access denied.</div>`;
+                    }
+                    document.getElementById('str-list').innerHTML = html;
+                }).catch(e => {
+                    console.error("Strings Error:", e);
+                    document.getElementById('str-list').innerHTML = `<div style="color:red; padding:10px;">Error: ${e.message}</div>`;
+                });
+        }
+
+        function selectProcess(pid) {
+            const current = document.getElementById('pid-input').value;
+            if (current == pid) {
+                inspectPid(false);
+            } else {
+                document.getElementById('pid-input').value = pid;
+                inspectPid(true);
+            }
+        }
+
+        function getProtectionString(p) {
+            // Basic mapping
+            if (p === 0x01) return "NOACCESS";
+            if (p === 0x02) return "R";
+            if (p === 0x04) return "RW";
+            if (p === 0x08) return "WC";
+            if (p === 0x10) return "X";
+            if (p === 0x20) return "RX";
+            if (p === 0x40) return "RWX";
+            if (p === 0x80) return "WCX";
+            return "0x" + p.toString(16).toUpperCase();
+        }
+
+        async function fetchProcessList() {
+            const tbody = document.getElementById('process-tbody');
+            tbody.innerHTML = '<tr><td colspan="2" style="text-align:center; padding:20px; color:#666;">Scanning...</td></tr>';
+            try {
+                const res = await fetch('/api/inspect', { method: 'POST', body: JSON.stringify({ Action: 'ListProcesses' }) });
+                processList = await res.json();
+                renderProcessList(processList);
+            } catch (e) { console.error(e); }
+        }
+
+        function renderProcessList(list) {
+            const tbody = document.getElementById('process-tbody');
+            if (!list || list.length === 0) { tbody.innerHTML = '<tr><td colspan="3">No processes.</td></tr>'; return; }
+
+            let html = "";
+            list.forEach(p => {
+                html += `<tr id="row-${p.pid}" onclick="selectProcess(${p.pid})">
+                            <td style="color:#fff;">${p.pid}</td>
+                            <td style="color:#00f0ff; overflow:hidden; text-overflow:ellipsis;">${p.name}</td>
+                            <td style="color:#aaa; font-size:0.8em; overflow:hidden; text-overflow:ellipsis;">${p.owner}</td>
+                         </tr>`;
+            });
+            tbody.innerHTML = html;
+        }
+
+        function filterProcessList() {
+            const term = document.getElementById('proc-filter').value.toLowerCase();
+            const filtered = processList.filter(p => p.name.toLowerCase().includes(term) || p.pid.toString().includes(term));
+            renderProcessList(filtered);
+        }
+
+        window.onload = () => {
+            fetchProcessList();
+            const params = new URLSearchParams(window.location.search);
+            const urlPid = params.get('pid');
+            if (urlPid) {
+                document.getElementById('pid-input').value = urlPid;
+                setTimeout(() => inspectPid(true), 500); // Wait for list
+            }
+        }
+    </script>
+
+</body>
+
+</html>

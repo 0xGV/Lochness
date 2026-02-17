@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lochness // SYSTEM_TELEMETRY</title>
+    <link rel="stylesheet" href="css/themes.css">
+    <script src="css/themes.js"></script>
+    <style>
+        :root {
+            /* Variables moved to css/themes.css */
+        }
+
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: var(--term-green);
+            font-family: var(--font-mono);
+            overflow: hidden;
+            display: flex;
+            flex-direction: row;
+            /* Changed to row for sidebar */
+        }
+
+        /* Sidebar Navigation */
+        #global-nav {
+            width: 60px;
+            background: #050505;
+            border-right: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+            gap: 15px;
+            flex-shrink: 0;
+            z-index: 10000;
+        }
+
+        .nav-item {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 4px;
+            text-decoration: none;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            color: #00f0ff;
+            border-color: #00f0ff;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+            background: rgba(0, 240, 255, 0.05);
+        }
+
+        .nav-icon {
+            font-size: 1.4rem;
+            line-height: 1;
+        }
+
+        /* CRT Effects */
+        body::before {
+            content: " ";
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            z-index: 1000;
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none;
+        }
+
+        #terminal-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            box-sizing: border-box;
+            z-index: 5;
+            position: relative;
+            overflow: hidden;
+            /* Constrain height */
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--term-dim);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.4rem;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            text-shadow: 0 0 10px var(--term-green);
+        }
+
+        .search-area {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .cmd-prompt {
+            color: var(--term-amber);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .search-input {
+            background: transparent;
+            border: 1px solid var(--term-dim);
+            color: var(--term-green);
+            padding: 8px 15px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            flex-grow: 1;
+            outline: none;
+            transition: all 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: var(--term-green);
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+        }
+
+        .grid-header {
+            display: grid;
+            grid-template-columns: 180px 180px 60px 150px 200px 280px 200px 1fr;
+            gap: 15px;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--term-green);
+            color: var(--term-amber);
+            font-weight: bold;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+        }
+
+        .grid-body {
+            flex-grow: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            border: 1px solid var(--grid-line);
+            background: rgba(0, 20, 0, 0.1);
+            min-height: 0;
+            /* Magic fix for flex scrolling */
+        }
+
+        .log-row {
+            display: grid;
+            grid-template-columns: 180px 180px 60px 150px 200px 280px 200px 1fr;
+            gap: 15px;
+            padding: 8px 15px;
+            border-bottom: 1px solid var(--grid-line);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+            align-items: center;
+            content-visibility: auto;
+            /* SKIP RENDERING OFFSCREEN CONTENT */
+            contain-intrinsic-size: 35px;
+            /* Prevent scrollbar jumping */
+        }
+
+        .log-row:hover {
+            background: rgba(0, 255, 65, 0.05);
+        }
+
+        .log-row.active {
+            background: rgba(0, 255, 65, 0.15);
+            border-left: 3px solid var(--term-green);
+        }
+
+        .col {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .col-time {
+            color: var(--term-dim);
+        }
+
+        .col-prov {
+            color: var(--accent-cyan);
+            font-weight: bold;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .col-proc {
+            color: var(--term-green);
+            font-style: italic;
+        }
+
+        .col-id {
+            color: var(--term-amber);
+            text-align: right;
+        }
+
+        .col-level {
+            font-weight: bold;
+        }
+
+        .lvl-critical,
+        .lvl-error {
+            color: var(--accent-magenta);
+        }
+
+        .lvl-warning {
+            color: var(--term-amber);
+        }
+
+        .lvl-info {
+            color: var(--term-green);
+        }
+
+        .col-data {
+            color: #888;
+        }
+
+        /* Inspector Panel */
+        #inspector {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 450px;
+            height: 100%;
+            background: rgba(5, 5, 5, 0.95);
+            border-left: 1px solid var(--term-green);
+            backdrop-filter: blur(20px);
+            transform: translateX(100%);
+            transition: transform 0.3s ease-out;
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            padding: 30px;
+            box-sizing: border-box;
+            box-shadow: -10px 0 50px rgba(0, 0, 0, 0.8);
+        }
+
+        #inspector.open {
+            transform: translateX(0);
+        }
+
+        .ins-header {
+            border-bottom: 1px solid var(--term-dim);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .ins-title {
+            color: var(--term-amber);
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .ins-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 0.85rem;
+        }
+
+        .ins-section {
+            margin-bottom: 25px;
+        }
+
+        .ins-label {
+            color: var(--term-dim);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .ins-value {
+            color: var(--term-green);
+            word-break: break-all;
+            white-space: pre-wrap;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-close {
+            background: transparent;
+            border: 1px solid var(--term-dim);
+            color: var(--term-dim);
+            padding: 5px 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: 0.7rem;
+        }
+
+        .btn-close:hover {
+            border-color: var(--term-green);
+            color: var(--term-green);
+        }
+
+        /* Mode Capsule */
+        #mode-capsule {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.8);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50px;
+            padding: 5px;
+            display: flex;
+            gap: 5px;
+            z-index: 10000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .mode-btn {
+            background: transparent;
+            border: none;
+            color: #888;
+            padding: 8px 20px;
+            border-radius: 40px;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+
+        .mode-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .mode-btn.active {
+            background: var(--term-green);
+            color: #000;
+            box-shadow: 0 0 15px rgba(0, 255, 65, 0.4);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--term-dim);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--term-green);
+        }
+
+        .kv-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .kv-key {
+            color: var(--term-dim);
+            padding: 4px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            width: 40%;
+            font-size: 0.75rem;
+        }
+
+        .kv-val {
+            color: #ccc;
+            padding: 4px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-size: 0.75rem;
+        }
+
+        /* PAGINATION option 2 */
+        .pagination-grid {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 5px 10px;
+            background: rgba(0, 0, 0, 0.9);
+            border-top: 1px solid var(--term-green);
+        }
+
+        .pg-cell {
+            border: 1px solid var(--term-dim);
+            padding: 2px 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--term-green);
+            font-weight: bold;
+            font-size: 0.7rem;
+        }
+
+        .pg-cell:hover:not(.disabled) {
+            border-color: var(--term-green);
+            box-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+        }
+
+        .pg-cell.active {
+            background: var(--term-green);
+            color: #000;
+        }
+
+        .pg-cell.disabled {
+            opacity: 0.5;
+            cursor: default;
+            border-color: transparent;
+        }
+
+        .pg-arrow {
+            cursor: pointer;
+            padding: 2px 6px;
+            color: var(--term-amber);
+            font-weight: bold;
+            font-size: 0.7rem;
+        }
+
+        .pg-arrow.disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+
+        .pg-info {
+            margin-left: 20px;
+            font-size: 0.7rem;
+            color: var(--term-dim);
+            border-left: 1px solid var(--term-dim);
+            padding-left: 10px;
+        }
+
+        .filter-area {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+            min-height: 25px;
+            /* prevent jumps */
+        }
+
+        .filter-chip {
+            background: rgba(0, 255, 65, 0.15);
+            border: 1px solid var(--term-green);
+            color: var(--term-green);
+            padding: 4px 10px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            text-transform: uppercase;
+        }
+
+        .filter-chip span {
+            font-weight: bold;
+            color: var(--term-amber);
+            margin-right: 4px;
+        }
+
+        .filter-chip .close {
+            cursor: pointer;
+            color: var(--term-green);
+            font-weight: bold;
+            font-size: 1rem;
+            line-height: 1;
+        }
+
+        .filter-chip .close:hover {
+            color: #fff;
+            text-shadow: 0 0 5px #fff;
+        }
+
+        /* Context Menu */
+        #contextMenu {
+            display: none;
+            position: fixed;
+            z-index: 3000;
+            background: rgba(5, 5, 5, 0.95);
+            border: 1px solid var(--term-green);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.8);
+            padding: 5px 0;
+            min-width: 150px;
+        }
+
+        .ctx-item {
+            padding: 8px 15px;
+            color: var(--term-green);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ctx-item:hover {
+            background: rgba(0, 255, 65, 0.15);
+        }
+
+        .ctx-item.exclude {
+            color: var(--accent-magenta);
+        }
+
+        .ctx-item.exclude:hover {
+            background: rgba(255, 0, 255, 0.15);
+        }
+
+        .context-target {
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .context-target:hover {
+            background: rgba(0, 255, 65, 0.1);
+            box-shadow: 0 0 5px rgba(0, 255, 65, 0.2);
+        }
+    </style>
+</head>
+
+<body>
+    <!-- SIDEBAR NAV -->
+    <nav id="global-nav">
+        <a class="nav-item" href="/ui/index.html" title="Config">
+            <div class="nav-icon">⚙</div>
+        </a>
+        <a class="nav-item" href="/ui/timeline.html" title="Timeline">
+            <div class="nav-icon">∿</div>
+        </a>
+        <a class="nav-item active" href="/ui/events.html" title="Table">
+            <div class="nav-icon">≣</div>
+        </a>
+        <a class="nav-item" href="/ui/inspection.html" title="Inspect">
+            <div class="nav-icon">◎</div>
+        </a>
+        <div class="nav-item" onclick="toggleTheme()" title="Toggle Theme"
+            style="margin-top: auto; margin-bottom: 20px;">
+            <div class="nav-icon">◑</div>
+        </div>
+    </nav>
+
+    <div id="terminal-container">
+        <header>
+            <h1>> SYSTEM_TELEMETRY_TERMINAL</h1>
+            <div id="live-indicator" style="font-size: 0.75rem; color: var(--term-dim);">> CONNECTION: LIVE</div>
+        </header>
+
+        <div class="search-area">
+            <span class="cmd-prompt">></span>
+            <input type="text" id="searchInput" class="search-input"
+                placeholder="SEARCH: TYPE FILTER (e.g. ID=123) AND PRESS ENTER..." autocomplete="off">
+        </div>
+
+        <!-- Filter Chips Container -->
+        <div id="filterContainer" class="filter-area"></div>
+
+        <div class="grid-header">
+            <div class="col">TIMESTAMP</div>
+            <div class="col">PROVIDER</div>
+            <div class="col" style="text-align:right;">ID</div>
+            <div class="col">PROCESS</div>
+            <div class="col">USER</div>
+            <div class="col">TASK</div>
+            <div class="col">KEYWORD</div>
+            <div class="col">PAYLOAD_SUMMARY</div>
+        </div>
+
+        <div id="gridBody" class="grid-body">
+            <!-- Rows injected here -->
+        </div>
+    </div>
+
+    <!-- Inspector Panel -->
+    <div id="inspector">
+        <div class="ins-header">
+            <span class="ins-title">EVENT_DETAIL</span>
+            <button class="btn-close" onclick="closeInspector()">DISMISS</button>
+        </div>
+        <div class="ins-content">
+            <div class="ins-section">
+                <div class="ins-label">DESCRIPTION</div>
+                <div id="ins-desc" class="ins-value" style="color: var(--accent-cyan);">---</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">CONTEXTUAL_DATA</div>
+                <div id="ins-data" class="ins-value">---</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">RAW_IDENTIFIERS</div>
+                <table class="kv-table" id="ins-meta"></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="contextMenu">
+        <div class="ctx-item" onclick="applyContextFilter(false)"><span>+</span> FILTER_INCLUDE</div>
+        <div class="ctx-item exclude" onclick="applyContextFilter(true)"><span>-</span> FILTER_EXCLUDE</div>
+    </div>
+
+
+
+    <script>
+        const searchInput = document.getElementById('searchInput');
+        const gridBody = document.getElementById('gridBody');
+        const inspector = document.getElementById('inspector');
+        const liveIndicator = document.getElementById('live-indicator');
+        const contextMenu = document.getElementById('contextMenu');
+
+        let activeEvent = null;
+        let latestTimestamp = "0";
+        let currentQuery = "";
+        const MAX_ROWS = 20000;
+        let isUserScrolling = false;
+
+        // PAGINATION STATE
+        let currentPage = 1;
+        const pageSize = 500;
+        let totalEvents = 0;
+
+        // Context Menu State
+        let ctxTargetKey = null;
+        let ctxTargetValue = null;
+
+        // Global Click to hide Context Menu
+        window.addEventListener('click', (e) => {
+            if (!contextMenu.contains(e.target)) {
+                contextMenu.style.display = 'none';
+            }
+        });
+
+        // Event Delegation
+        gridBody.addEventListener('click', (e) => {
+            const row = e.target.closest('.log-row');
+            if (row && row._evtData) openInspector(row._evtData, row);
+        });
+
+        gridBody.addEventListener('scroll', () => {
+            isUserScrolling = gridBody.scrollTop > 50;
+        });
+
+        function formatTime(ns) {
+            try {
+                const t = BigInt(ns);
+                const jsTime = Number((t - 116444736000000000n) / 10000n);
+                const d = new Date(jsTime);
+                if (isNaN(d.getTime())) return "INVALID_TIME";
+                return d.toLocaleTimeString([], { hour12: false }) + "." + d.getMilliseconds().toString().padStart(3, '0');
+            } catch (e) { return "ERR_TIME"; }
+        }
+
+        async function fetchEvents(isNewSearch = false) {
+            const query = "";
+
+            if (isNewSearch) {
+                latestTimestamp = "0";
+                gridBody.innerHTML = '';
+            }
+
+            try {
+                // Serialize filters
+                const backendFilters = activeFilters.map(f => ({
+                    Field: f.field,
+                    Value: f.value,
+                    Operator: f.operator || "="
+                }));
+                const filtersJson = encodeURIComponent(JSON.stringify(backendFilters));
+
+                const res = await fetch(`/events/search?query=&filters=${filtersJson}&page=${currentPage}&size=${pageSize}`);
+                if (!res.ok) return;
+
+                let respData = await res.json();
+                let events = Array.isArray(respData) ? respData : respData.events;
+                if (!Array.isArray(events)) events = [];
+
+                totalEvents = respData.total || events.length;
+
+                renderPage(events);
+                updatePaginationControls();
+
+            } catch (e) { console.error(e); }
+        }
+
+        function renderPage(events) {
+            gridBody.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            events.forEach(evt => {
+                const r = createRow(evt);
+                if (r) fragment.appendChild(r);
+            });
+            gridBody.appendChild(fragment);
+            gridBody.scrollTop = 0;
+        }
+
+        function createRow(evt) {
+            try {
+                let dataObj = evt.data;
+                if (typeof dataObj === 'string') {
+                    try { dataObj = JSON.parse(atob(dataObj)); }
+                    catch (e) { try { dataObj = JSON.parse(dataObj); } catch (e2) { dataObj = { raw: dataObj }; } }
+                }
+
+                let level = dataObj.LevelStr;
+                if (!level || !isNaN(level)) {
+                    const l = dataObj.Level;
+                    if (l == 1) level = "Critical";
+                    else if (l == 2) level = "Error";
+                    else if (l == 3) level = "Warning";
+                    else if (l == 4) level = "Information";
+                    else if (l == 5) level = "Verbose";
+                    else level = l || '-';
+                }
+
+                const lvlClass = (level.toString().toLowerCase().includes('error') || level.toString().toLowerCase().includes('critical')) ? 'lvl-error' :
+                    (level.toString().toLowerCase().includes('warning')) ? 'lvl-warning' : 'lvl-info';
+
+                const row = document.createElement('div');
+                row.className = `log-row`;
+                row._evtData = { evt, data: dataObj };
+
+                let provDisplay = evt.provider_name || "";
+                if (!provDisplay && evt.provider_id) {
+                    if (Array.isArray(evt.provider_id)) provDisplay = evt.provider_id.slice(0, 4).map(b => b.toString(16).padStart(2, '0')).join('');
+                    else provDisplay = (typeof evt.provider_id === 'string') ? evt.provider_id : JSON.stringify(evt.provider_id).slice(0, 8);
+                }
+
+                let summary = "";
+                // Use normalized keys in ignore list
+                const ignoreKeys = ["Level", "LevelStr", "Opcode", "OpcodeStr", "Task", "TaskStr", "Keyword", "Description", "Version",
+                    "ImageName", "ProcessName", "ProcessId", "User", "ParentProcessId", "ParentImageName", "ParentProcessName",
+                    "PID", "processid", "process name", "parent pid" // Keep old ones just in case
+                ];
+
+                if (typeof dataObj === 'object' && dataObj !== null) {
+                    for (const [k, v] of Object.entries(dataObj)) {
+                        if (!ignoreKeys.includes(k)) summary += `${k}=${v} `;
+                    }
+                }
+                if (!summary) summary = JSON.stringify(dataObj).slice(0, 100);
+
+                // Safe lookups for normalized fields
+                const procName = dataObj['ImageName'] || dataObj['ProcessName'] || dataObj['process name'] || '-';
+                const userName = dataObj['User'] || dataObj['user'] || '-';
+
+                row.innerHTML = `
+                    <div class="col col-time">${formatTime(evt.timestamp)}</div>
+                    <div class="col col-prov" title="${provDisplay}">${provDisplay}</div>
+                    <div class="col col-id">${evt.event_id}</div>
+                    <div class="col col-proc" title="${procName}">${procName}</div>
+                    <div class="col" style="color:#0ff; font-size:0.75rem;" title="${userName}">${userName}</div>
+                    <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.TaskStr || dataObj.Task || '-'}</div>
+                    <div class="col" style="color:#aaa; font-size:0.75rem;">${dataObj.Keyword || '-'}</div>
+                    <div class="col col-data">${summary}</div>
+                `;
+                return row;
+            } catch (err) { console.error(err); return null; }
+        }
+
+        // --- Pagination UI ---
+        // Dynamically inject the pagination controls if not present
+        if (!document.getElementById('pagination-ui')) {
+            const pgContainer = document.createElement('div');
+            pgContainer.id = 'pagination-ui';
+            pgContainer.className = 'pagination-grid';
+            gridBody.parentElement.appendChild(pgContainer);
+        }
+
+        function updatePaginationControls() {
+            const container = document.getElementById('pagination-ui');
+            const totalPages = Math.ceil(totalEvents / pageSize);
+            if (totalPages <= 1) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'flex';
+
+            let html = '';
+
+            // Prev
+            html += `<div class="pg-arrow ${currentPage === 1 ? 'disabled' : ''}" onclick="changePage(${currentPage - 1})">&lt;&lt;</div>`;
+
+            // Page Logic (Show window of pages)
+            let startP = Math.max(1, currentPage - 2);
+            let endP = Math.min(totalPages, startP + 4);
+            if (endP - startP < 4) startP = Math.max(1, endP - 4);
+
+            if (startP > 1) {
+                html += `<div class="pg-cell" onclick="changePage(1)">01</div>`;
+                if (startP > 2) html += `<div class="pg-cell disabled">...</div>`;
+            }
+
+            for (let i = startP; i <= endP; i++) {
+                const active = i === currentPage ? 'active' : '';
+                html += `<div class="pg-cell ${active}" onclick="changePage(${i})">${i.toString().padStart(2, '0')}</div>`;
+            }
+
+            if (endP < totalPages) {
+                if (endP < totalPages - 1) html += `<div class="pg-cell disabled">...</div>`;
+                html += `<div class="pg-cell" onclick="changePage(${totalPages})">${totalPages}</div>`;
+            }
+
+            // Next
+            html += `<div class="pg-arrow ${currentPage === totalPages ? 'disabled' : ''}" onclick="changePage(${currentPage + 1})">&gt;&gt;</div>`;
+
+            html += `<div class="pg-info">RANGE: ${(currentPage - 1) * pageSize + 1}-${Math.min(currentPage * pageSize, totalEvents)} / ${totalEvents}</div>`;
+
+            container.innerHTML = html;
+        }
+
+        window.changePage = function (p) {
+            if (p < 1 || p > Math.ceil(totalEvents / pageSize)) return;
+            currentPage = p;
+            fetchEvents();
+        }
+
+        function parseEventData(data) {
+            if (!data) return '<div style="color:#666; font-style:italic;">No Payload Data</div>';
+
+            if (typeof data === 'object') {
+                if (Object.keys(data).length === 0) {
+                    return '<div style="color:#666; font-style:italic;">Empty Payload</div>';
+                }
+                let html = '<table class="kv-table">';
+                for (const [k, v] of Object.entries(data)) {
+                    let valStr = v;
+                    if (typeof v === 'object' && v !== null) {
+                        try {
+                            valStr = JSON.stringify(v);
+                        } catch (e) {
+                            valStr = '[Complex Object]';
+                        }
+                    }
+                    // Escape value for attribute
+                    const safeVal = String(valStr).replace(/"/g, '&quot;');
+                    html += `<tr>
+                        <td class="kv-key">${k}</td>
+                        <td class="kv-val context-target" data-key="${k}" data-val="${safeVal}" onclick="handleContextMenu(event, '${k}', this.getAttribute('data-val'))">${valStr}</td>
+                    </tr>`;
+                }
+                html += '</table>';
+                return html;
+            }
+            return `<div style="color:var(--term-green); white-space:pre-wrap;">${data}</div>`;
+        }
+
+        function openInspector(wrap, element) {
+            activeEvent = wrap.evt;
+            const data = wrap.data;
+            const evt = wrap.evt;
+
+            // Hide context menu if open
+            contextMenu.style.display = 'none';
+
+            inspector.classList.add('open');
+            document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
+            element.classList.add('active');
+
+            // Format Timestamp
+            let timeStr = "INVALID";
+            try {
+                const t = BigInt(evt.timestamp);
+                const jsTime = Number((t - 116444736000000000n) / 10000n);
+                const d = new Date(jsTime);
+                timeStr = d.toLocaleString() + " : " + d.getMilliseconds() + "ms";
+            } catch (e) { timeStr = evt.timestamp; }
+
+            const providerName = evt.provider_name || (typeof evt.provider_id === 'string' ? evt.provider_id : "UNKNOWN");
+            const formattedData = parseEventData(data);
+
+            const contentHtml = `
+            <div class="ins-section">
+                <div class="ins-label">TEMPORAL MARKER</div>
+                <div class="ins-value">${timeStr}</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">ORIGIN PROVIDER</div>
+                <div class="ins-value context-target" data-key="Provider" data-val="${providerName}" onclick="handleContextMenu(event, 'Provider', '${providerName}')">${providerName}</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">EVENT IDENTIFIER</div>
+                <div class="ins-value context-target" data-key="ID" data-val="${evt.event_id}" onclick="handleContextMenu(event, 'ID', '${evt.event_id}')">${evt.event_id}</div>
+            </div>
+            <div class="ins-section">
+                <div class="ins-label">PROCESS CONTEXT</div>
+                <div class="ins-value">
+                    <div style="margin-bottom:8px;"><span style="color:var(--term-dim);">Process:</span> ${data['ImageName'] || data['process name'] || 'Unknown'}</div>
+                    <div style="margin-bottom:8px;"><span style="color:var(--term-dim);">User:</span> ${data.User || data.user || 'Unknown'}</div>
+                    <div style="margin-bottom:8px;"><span style="color:var(--term-dim);">Parent PID:</span> ${data['ParentProcessId'] || data['parent pid'] || 'N/A'}</div>
+                    <div><span style="color:var(--term-dim);">Parent Process:</span> ${data['ParentImageName'] || data['ParentProcessName'] || data['parent process name'] || 'N/A'}</div>
+                </div>
+            </div>
+            ${(data.Frames && Array.isArray(data.Frames) && data.Frames.length > 0) ? `
+            <div class="ins-section">
+                <div class="ins-label">CALL STACK</div>
+                <div class="ins-value" style="max-height: 200px; overflow-y: auto; font-family:var(--font-mono); font-size:0.75rem;">
+                    ${data.Frames.map((f, i) => `<div style="padding:2px 0; border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--term-dim); margin-right:8px;">${i.toString().padStart(2, '0')}</span> ${f}</div>`).join('')}
+                </div>
+            </div>` : ''}
+            <div class="ins-section">
+                <div class="ins-label">STRUCTURED DATA</div>
+                <div style="background:rgba(255,255,255,0.02); padding:10px; border:1px solid rgba(255,255,255,0.05);">${formattedData}</div>
+            </div>
+            `;
+
+            document.querySelector('.ins-content').innerHTML = contentHtml;
+        }
+
+        function handleContextMenu(e, key, value) {
+            e.stopPropagation(); // Prevent bubbling causing immediate close
+            ctxTargetKey = key;
+            ctxTargetValue = value;
+
+            // Position menu
+            const x = e.clientX;
+            const y = e.clientY;
+
+            // Boundary checks (basic)
+            contextMenu.style.left = `${x}px`;
+            contextMenu.style.top = `${y}px`;
+            contextMenu.style.display = 'block';
+        }
+
+        function applyContextFilter(exclude) {
+            if (!ctxTargetKey || ctxTargetValue === null) return;
+
+            const operator = exclude ? '!=' : '=';
+            const filterStr = `${ctxTargetKey}${operator}${ctxTargetValue}`;
+
+            addFilter(filterStr);
+            contextMenu.style.display = 'none';
+        }
+
+        function closeInspector() {
+            inspector.classList.remove('open');
+            activeEvent = null;
+            contextMenu.style.display = 'none';
+            document.querySelectorAll('.log-row').forEach(r => r.classList.remove('active'));
+        }
+
+        // Filter Logic
+        let activeFilters = []; // { field: "ID", value: "123" }
+
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                const val = searchInput.value.trim();
+                if (val) {
+                    addFilter(val);
+                    searchInput.value = '';
+                }
+            }
+        });
+
+        function addFilter(text) {
+            let field = "*"; // Default to naive search
+            let value = text;
+            let operator = "=";
+
+            // Check for Key!=Value or Key=Value
+            // Check != first as it is more specific
+            if (text.includes('!=')) {
+                operator = "!=";
+                const parts = text.split('!=');
+                const key = parts[0].trim().toLowerCase();
+                field = resolveFieldKey(key, parts[0].trim());
+                value = parts.slice(1).join('!=').trim();
+            } else if (text.includes('=')) {
+                operator = "=";
+                const parts = text.split('=');
+                const key = parts[0].trim().toLowerCase();
+                field = resolveFieldKey(key, parts[0].trim());
+                value = parts.slice(1).join('=').trim();
+            }
+
+            // Check for duplicates
+            const exists = activeFilters.some(f =>
+                f.field === field &&
+                f.value === value &&
+                f.operator === operator
+            );
+            if (exists) return;
+
+            activeFilters.push({ field: field, value: value, operator: operator, raw: text });
+            renderFilters();
+            currentPage = 1;
+            fetchEvents(true);
+        }
+
+        function resolveFieldKey(lowerKey, originalKey) {
+            if (['id', 'eventid'].includes(lowerKey)) return "ID";
+            if (['provider', 'prov'].includes(lowerKey)) return "Provider";
+            if (['task', 'process', 'pid', 'level', 'keyword'].includes(lowerKey)) return originalKey;
+            return originalKey;
+        }
+
+        function removeFilter(index) {
+            activeFilters.splice(index, 1);
+            renderFilters();
+            currentPage = 1;
+            fetchEvents(true);
+        }
+
+        function renderFilters() {
+            const container = document.getElementById('filterContainer');
+            container.innerHTML = '';
+            activeFilters.forEach((f, idx) => {
+                const chip = document.createElement('div');
+                chip.className = 'filter-chip';
+                // Distinct color for exclusion?
+                const isExclusion = f.operator === '!=';
+                if (isExclusion) {
+                    chip.style.borderColor = 'var(--accent-magenta)';
+                    chip.style.color = 'var(--accent-magenta)';
+                }
+                // For naive search (*), display only the value
+                const displayText = f.field === '*' ? f.value : `<span>${f.field}${f.operator}</span> ${f.value}`;
+                chip.innerHTML = `${displayText} <div class="close" onclick="removeFilter(${idx})">×</div>`;
+                container.appendChild(chip);
+            });
+        }
+
+        // Initial load
+        fetchEvents(true);
+
+        // Fetch background every 5s for page 1 updates?
+        // Let's keep it manual or simple poll for now.
+        setInterval(() => {
+            if (currentPage === 1 && !isUserScrolling) fetchEvents();
+        }, 5000);
+
+    </script>
+</body>
+
+</html>
