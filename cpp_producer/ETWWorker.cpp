@@ -137,6 +137,24 @@ typedef NTSTATUS(WINAPI *pNtQueryInformationProcess)(
     PVOID ProcessInformation, ULONG ProcessInformationLength,
     PULONG ReturnLength);
 
+// GUID Definitions for Stack Walking
+// GUID Definitions for Stack Walking
+DEFINE_GUID(ProcessGuid, 0x3d6fa8d0, 0xfe05, 0x11d0, 0x9d, 0xda, 0x00, 0xc0,
+            0x4f, 0xd7, 0xba, 0x7c);
+DEFINE_GUID(ThreadGuid, 0x3d6fa8d1, 0xfe05, 0x11d0, 0x9d, 0xda, 0x00, 0xc0,
+            0x4f, 0xd7, 0xba, 0x7c);
+DEFINE_GUID(ImageLoadGuid, 0x2cb15d1d, 0x5fc1, 0x11d2, 0xab, 0xe1, 0x00, 0xa0,
+            0xc9, 0x11, 0xf5, 0x18);
+DEFINE_GUID(StackWalkGuid, 0xdef2fe46, 0x7bd6, 0x4b80, 0xbd, 0x94, 0xf5, 0x7f,
+            0xe2, 0x0d, 0x0c, 0xe3);
+
+// Classic Event IDs used by StackWalk
+#define CLASSIC_EVENT_ID_PROCESS_START 1
+#define CLASSIC_EVENT_ID_PROCESS_END 2
+#define CLASSIC_EVENT_ID_THREAD_START 1
+#define CLASSIC_EVENT_ID_IMAGELOAD 10
+#define CLASSIC_EVENT_ID_STACKWALK 32
+
 ETWWorker::ETWWorker()
     : m_sessionHandle(0), m_traceHandle(INVALID_PROCESSTRACE_HANDLE),
       m_running(false), m_hPipe(INVALID_HANDLE_VALUE), m_droppedEvents(0) {}
@@ -318,10 +336,10 @@ void ETWWorker::Start(const std::wstring &sessionName) {
   m_sessionName = sessionName;
   m_running = true;
 
-  // Enable Kernel Process Provider for Image Load
-  EnableProvider(L"{22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}");
-  // StackWalk provider not available in standard user session, disabling for
-  // now. EnableProvider(L"{DEF2FE46-7BD6-4B80-BD94-F57FE20D0CE3}");
+  m_sessionName = sessionName;
+  m_running = true;
+
+  // Providers will be enabled in TraceLoop after session starts
 
   // Start Background Workers (4 threads)
   for (int i = 0; i < 4; i++) {
@@ -366,15 +384,26 @@ void ETWWorker::Stop() {
   m_workerThreads.clear();
 }
 
-void ETWWorker::EnableProvider(const std::wstring &providerGuid) {
+void ETWWorker::EnableProvider(const std::wstring &providerGuid,
+                               bool captureStack) {
   GUID guid;
   if (UuidFromStringW((RPC_WSTR)providerGuid.c_str(), &guid) == RPC_S_OK) {
-    ULONG status = EnableTraceEx2(m_sessionHandle, &guid,
-                                  EVENT_CONTROL_CODE_ENABLE_PROVIDER,
-                                  TRACE_LEVEL_VERBOSE, 0, 0, 0, NULL);
+
+    ENABLE_TRACE_PARAMETERS params = {0};
+    params.Version = ENABLE_TRACE_PARAMETERS_VERSION_2;
+    if (captureStack) {
+      params.EnableProperty = EVENT_ENABLE_PROPERTY_STACK_TRACE;
+    }
+
+    ULONG status = EnableTraceEx2(
+        m_sessionHandle, &guid, EVENT_CONTROL_CODE_ENABLE_PROVIDER,
+        TRACE_LEVEL_VERBOSE, 0xFFFFFFFFFFFFFFFF, 0, 0, &params);
     if (status == ERROR_SUCCESS) {
       std::wcout << L"Successfully enabled provider: " << providerGuid
-                 << std::endl;
+                 << (captureStack ? L" [StackWalk Enabled]" : L"") << std::endl;
+
+      // Also enable Classic Image Load (Kernel) if generic kernel provider
+      // But we are using the manifest wrapper for Kernel Process.
     } else {
       std::wcerr << L"Failed to enable provider: " << providerGuid
                  << L" (Status: " << status << L")" << std::endl;
@@ -426,6 +455,10 @@ void ETWWorker::TraceLoop() {
   }
   std::wcout << L"Successfully started trace session: " << m_sessionName
              << std::endl;
+
+  // Re-enable Providers NOW that session is running
+  // Enable Kernel Process Provider with Stack Capture
+  EnableProvider(L"22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716", true);
 
   free(pProps);
 
@@ -797,6 +830,49 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
   if (IsEqualGUID(pEvent->EventHeader.ProviderId, EventTraceGuid))
     return;
 
+  // Handle Helper Events (Image Load) for Symbol Resolution
+  // 1. Kernel Process Provider - Image Load (Opcode 10)
+  // GUID: {22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716}
+  // 2. ImageLoadGuid (Classic) - Image Load (Opcode 10)
+  // GUID: {2CB15D1D-5FC1-11D2-ABE1-00A0C911F518}
+
+  // We only really care about updating our module cache here.
+  // We can construct a JSON body and pass it to HandleImageLoad.
+
+  // Check for Extended Data (Stack Trace) attached to this event
+  std::vector<uint64_t> inlineStack;
+  if (pEvent->EventHeader.Flags & EVENT_HEADER_FLAG_EXTENDED_INFO) {
+    for (USHORT i = 0; i < pEvent->EventHeader.ExtendedDataCount; i++) {
+      if (pEvent->ExtendedData[i].ExtType ==
+          EVENT_HEADER_EXT_TYPE_STACK_TRACE64) {
+        PEVENT_EXTENDED_ITEM_STACK_TRACE64 pStack =
+            (PEVENT_EXTENDED_ITEM_STACK_TRACE64)pEvent->ExtendedData[i].DataPtr;
+        for (int j = 0;
+             j < (int)((pEvent->ExtendedData[i].DataSize - sizeof(ULONG64)) /
+                       sizeof(ULONG64));
+             j++) {
+          // Verify MatchAddress if needed, but usually just grabbing frames
+          inlineStack.push_back(pStack->Address[j]);
+        }
+        // Debug Log
+        std::cout << "[DEBUG] Found Stack in Extended Data! Frames: "
+                  << inlineStack.size() << std::endl;
+      } else if (pEvent->ExtendedData[i].ExtType ==
+                 EVENT_HEADER_EXT_TYPE_STACK_TRACE32) {
+        PEVENT_EXTENDED_ITEM_STACK_TRACE32 pStack =
+            (PEVENT_EXTENDED_ITEM_STACK_TRACE32)pEvent->ExtendedData[i].DataPtr;
+        for (int j = 0;
+             j < (int)((pEvent->ExtendedData[i].DataSize - sizeof(ULONG)) /
+                       sizeof(ULONG));
+             j++) {
+          inlineStack.push_back(pStack->Address[j]);
+        }
+        std::cout << "[DEBUG] Found Stack (32-bit) in Extended Data! Frames: "
+                  << inlineStack.size() << std::endl;
+      }
+    }
+  }
+
   std::lock_guard<std::mutex> lock(m_stateMutex);
 
   // 1. Define Cache Key
@@ -891,8 +967,15 @@ void ETWWorker::ProcessEvent(PEVENT_RECORD pEvent) {
     jObj["Keyword"] = ToUtf8(schema.KeywordStr);
   if (!schema.OpcodeStr.empty())
     jObj["OpcodeStr"] = ToUtf8(schema.OpcodeStr);
+  if (!schema.OpcodeStr.empty())
+    jObj["OpcodeStr"] = ToUtf8(schema.OpcodeStr);
   if (!schema.TaskStr.empty())
     jObj["TaskStr"] = ToUtf8(schema.TaskStr);
+
+  // Inject Stack if present
+  if (!inlineStack.empty()) {
+    jObj["Stack"] = inlineStack;
+  }
 
   for (size_t i = 0; i < props.size(); ++i) {
     if (pData >= pEnd)
@@ -1053,16 +1136,19 @@ void ETWWorker::WorkerLoop() {
     // 0. Stack Trace Support
     HandleImageLoad(frame.JsonBody, frame.ProcessId);
 
-    // StackWalk Event (Id 32)
-    if (frame.Header.EventId == 32) {
-      if (frame.JsonBody.contains("Stack") &&
-          frame.JsonBody["Stack"].is_array()) {
-        std::vector<uint64_t> stack;
-        for (auto &val : frame.JsonBody["Stack"]) {
-          if (val.is_number())
-            stack.push_back(val.get<uint64_t>());
-        }
+    // Generic Stack Trace Resolution
+    if (frame.JsonBody.contains("Stack") &&
+        frame.JsonBody["Stack"].is_array()) {
+      std::vector<uint64_t> stack;
+      for (auto &val : frame.JsonBody["Stack"]) {
+        if (val.is_number())
+          stack.push_back(val.get<uint64_t>());
+      }
+      if (!stack.empty()) {
         frame.JsonBody["Frames"] = ResolveStack(frame.ProcessId, stack);
+        // Debug print first frame
+        // std::cout << "[DEBUG] Resolved " << stack.size() << " frames for PID
+        // " << frame.ProcessId << std::endl;
       }
     }
 

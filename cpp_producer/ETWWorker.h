@@ -147,7 +147,8 @@ public:
 
   void Start(const std::wstring &sessionName);
   void Stop();
-  void EnableProvider(const std::wstring &providerGuid);
+  void EnableProvider(const std::wstring &providerGuid,
+                      bool captureStack = false);
   void DisableProvider(const std::wstring &providerGuid);
 
   std::wstring GetProviderMetadata(const std::wstring &providerGuid,
