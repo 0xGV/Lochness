@@ -2,12 +2,7 @@
 #include <iostream>
 #include <string>
 
-// Wait, no external deps for Go. For C++, JSON parsing is painful without libs.
-// User didn't specify no deps for C++.
-// But I don't have nlohmann json installed.
-// Basic simple string parsing for control commands.
-// Command: {"Action":"Enable", "Provider":"GUID"}
-// I'll parse it manually.
+
 
 using namespace std;
 
